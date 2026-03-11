@@ -106,7 +106,7 @@ export default function DashboardPage() {
   const [rejectReason, setRejectReason] = useState("");
 
   const searchRef = useRef<HTMLInputElement>(null);
-  const searchTimeout = useRef<NodeJS.Timeout | undefined>();
+  const searchTimeout = useRef<NodeJS.Timeout | undefined>(undefined);
 
   // ── Init ──
   useEffect(() => {
