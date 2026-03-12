@@ -735,6 +735,43 @@ export default function DashboardPage() {
     setToast("Active version updated");
   };
 
+  const handleRollbackVersion = async (versionId: string) => {
+    if (!token || !inspectAsset?.id) return;
+    setActivatingVersionId(versionId);
+    const res = await api.rollbackVersion(token, inspectAsset.id, versionId);
+    if ((res as any)?.error) {
+      setToast(`Rollback failed: ${(res as any).error}`);
+      setActivatingVersionId(null);
+      return;
+    }
+    const versions = await api.fetchAssetVersions(token, inspectAsset.id);
+    setAssetVersions(Array.isArray(versions) ? versions : []);
+    setAssetMeta((prev: any) => {
+      if (!prev?.metadata) return prev;
+      return {
+        ...prev,
+        metadata: {
+          ...prev.metadata,
+          active_version_asset_id: String(versionId),
+          version_state: String(inspectAsset.id) === String(versionId) ? "active" : "inactive",
+        },
+      };
+    });
+    setInspectAsset((prev: any) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        metadata: {
+          ...(prev.metadata || {}),
+          active_version_asset_id: String(versionId),
+          version_state: String(prev.id) === String(versionId) ? "active" : "inactive",
+        },
+      };
+    });
+    setActivatingVersionId(null);
+    setToast("Rollback applied");
+  };
+
   const handleUpdateQaTaskStatus = async (task: any, next: "open" | "in_progress" | "done") => {
     if (!token || !inspectAsset?.id || !task?.id) return;
     setUpdatingQaTaskId(task.id);
@@ -2666,12 +2703,39 @@ export default function DashboardPage() {
 
                   {imageInspectorTab === "compare" && (
                     compareAsset?.preview_url ? (
-                      <VersionComparePanel
-                        beforeUrl={compareAsset.preview_url}
-                        afterUrl={inspectAsset.preview_url}
-                        beforeLabel={compareAsset.filename || "Previous"}
-                        afterLabel={inspectAsset.filename || "Current"}
-                      />
+                      <div className="space-y-3">
+                        <VersionComparePanel
+                          beforeUrl={compareAsset.preview_url}
+                          afterUrl={inspectAsset.preview_url}
+                          beforeLabel={compareAsset.filename || "Previous"}
+                          afterLabel={inspectAsset.filename || "Current"}
+                        />
+                        {canManageVersions && (
+                          <div className="flex items-center justify-between rounded-lg border border-[#27272A] bg-[#0A0A0A] px-3 py-2">
+                            <div>
+                              <p className="text-[11px] text-[#A1A1AA]">Rollback target</p>
+                              <p className="text-[10px] text-[#52525B] truncate">{compareAsset.filename}</p>
+                            </div>
+                            {activeVersionId && String(compareAsset.id) === String(activeVersionId) ? (
+                              <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+                                Active
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleRollbackVersion(String(compareAsset.id))}
+                                disabled={activatingVersionId === String(compareAsset.id)}
+                                className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide transition-colors ring-1 ${
+                                  activatingVersionId === String(compareAsset.id)
+                                    ? "bg-white/[0.04] text-[#52525B] ring-white/[0.06] cursor-not-allowed"
+                                    : "bg-amber-500/10 text-amber-200 ring-amber-500/20 hover:bg-amber-500/20"
+                                }`}
+                              >
+                                {activatingVersionId === String(compareAsset.id) ? "Rolling..." : "Rollback"}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <p className="text-[10px] text-[#52525B]">
                         Version Compare: previous version not found in current asset page.
