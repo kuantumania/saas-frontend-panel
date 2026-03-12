@@ -202,6 +202,7 @@ export default function DashboardPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isAutoRouting, setIsAutoRouting] = useState(false);
   const [isEscalatingQueue, setIsEscalatingQueue] = useState(false);
+  const [showQueueGlossary, setShowQueueGlossary] = useState(false);
   const [queueFilter, setQueueFilter] = useState<"all" | "critical" | "breach" | "at_risk" | "healthy">("all");
   const [queueQaFilter, setQueueQaFilter] = useState<"all" | "blocked" | "risky" | "ready">("all");
   const [queueInsights, setQueueInsights] = useState<any>(null);
@@ -940,7 +941,7 @@ export default function DashboardPage() {
               </p>
               <p className="text-[10px] text-[#71717A] mt-1">
                 {queueInsights?.bottlenecks?.[0]
-                  ? `${queueInsights.bottlenecks[0].count} items · ${queueInsights.bottlenecks[0].breach} breach`
+                  ? `${queueInsights.bottlenecks[0].count} items · ${queueInsights.bottlenecks[0].critical || 0} critical · ${queueInsights.bottlenecks[0].breach} breach`
                   : "No bottleneck data"}
               </p>
             </div>
@@ -1135,6 +1136,14 @@ export default function DashboardPage() {
               <Clock className="w-4 h-4 text-[#F59E0B]" strokeWidth={1.5} />
               <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Operational Queue</h2>
               <span className="text-xs text-[#52525B]">{reviewQueue.length}</span>
+              <button
+                onClick={() => setShowQueueGlossary((p) => !p)}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-[#A1A1AA] hover:text-[#EDEDED] bg-white/[0.02] hover:bg-white/[0.05] ring-1 ring-white/[0.07] transition-colors"
+                title="Queue terms and definitions"
+              >
+                <Info className="w-3.5 h-3.5" strokeWidth={1.7} />
+                {showQueueGlossary ? "Hide Guide" : "Queue Guide"}
+              </button>
             </div>
             <div className="flex items-center gap-4">
               <button
@@ -1188,6 +1197,43 @@ export default function DashboardPage() {
               ))}
             </div>
           </div>
+
+          <AnimatePresence initial={false}>
+            {showQueueGlossary && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-3 overflow-hidden"
+              >
+                <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] p-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+                      <p className="text-[11px] text-[#EDEDED] font-medium mb-1">SLA States</p>
+                      <p className="text-[10px] text-[#71717A]">`Healthy`: age &lt; {queuePolicy?.at_risk_hours ?? 8}h</p>
+                      <p className="text-[10px] text-[#71717A]">`At Risk`: age ≥ {queuePolicy?.at_risk_hours ?? 8}h and &lt; {queuePolicy?.breach_hours ?? 24}h</p>
+                      <p className="text-[10px] text-[#71717A]">`Breach`: age ≥ {queuePolicy?.breach_hours ?? 24}h and &lt; {queuePolicy?.critical_hours ?? 48}h</p>
+                      <p className="text-[10px] text-[#71717A]">`Critical`: age ≥ {queuePolicy?.critical_hours ?? 48}h (highest urgency lane)</p>
+                    </div>
+                    <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+                      <p className="text-[11px] text-[#EDEDED] font-medium mb-1">QA Gate States</p>
+                      <p className="text-[10px] text-[#71717A]">`Ready`: no rule violations, safe to review/approve.</p>
+                      <p className="text-[10px] text-[#71717A]">`Risky`: warnings exist, review allowed but dikkat gerekir.</p>
+                      <p className="text-[10px] text-[#71717A]">`Blocked`: one or more error violations, normalde fix gerekli.</p>
+                      <p className="text-[10px] text-[#71717A]">`Escalation Needed`: SLA Breach/Critical veya QA Blocked.</p>
+                    </div>
+                    <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3 col-span-2">
+                      <p className="text-[11px] text-[#EDEDED] font-medium mb-1">Scoring & Actions</p>
+                      <p className="text-[10px] text-[#71717A]">
+                        `Priority (Pxx)` = yaş + dosya boyutu ağırlıklı operasyon skoru. `Auto Route` önerilen reviewer'a dağıtır.
+                        `Run Escalation` ise policy + cooldown kurallarıyla kritik item'lar için uyarı üretir.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] overflow-hidden">
             <div className="grid grid-cols-[1fr_90px_80px_70px_170px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] text-[10px] font-semibold tracking-[0.1em] uppercase text-[#3F3F46]">
