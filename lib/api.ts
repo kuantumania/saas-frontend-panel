@@ -98,8 +98,9 @@ export async function inviteMember(token: string, role: string) {
     headers: headers(token),
     body: JSON.stringify({ role }),
   });
-  if (!res.ok) return null;
-  return res.json();
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data;
 }
 
 export async function postComment(token: string, assetId: string, content: string) {
@@ -193,4 +194,3 @@ export async function fetchAssetMetadata(token: string, assetId: string) {
   if (!res.ok) return null;
   return res.json();
 }
-

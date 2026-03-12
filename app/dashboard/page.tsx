@@ -144,9 +144,11 @@ export default function DashboardPage() {
   const [showToken, setShowToken] = useState(false);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [showInviteMenu, setShowInviteMenu] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const searchTimeout = useRef<NodeJS.Timeout | undefined>(undefined);
+  const inviteMenuRef = useRef<HTMLDivElement>(null);
 
   // ── Init ──
   useEffect(() => {
@@ -207,6 +209,15 @@ export default function DashboardPage() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!inviteMenuRef.current) return;
+      if (!inviteMenuRef.current.contains(e.target as Node)) setShowInviteMenu(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
   // ── Library reload ──
   const loadLibrary = useCallback(async () => {
     if (!token) return;
@@ -233,10 +244,17 @@ export default function DashboardPage() {
   const handleInvite = async (role: string) => {
     if (!token) return;
     const data = await api.inviteMember(token, role);
+    setShowInviteMenu(false);
+    if ((data as any)?.error) {
+      setToast(`Invite failed: ${(data as any).error}`);
+      return;
+    }
     if (data?.pin) {
       setToast(`Invite PIN: ${data.pin}`);
       loadAll();
+      return;
     }
+    setToast("Invite failed");
   };
 
   const handleMarkRead = async () => {
@@ -953,12 +971,17 @@ export default function DashboardPage() {
                 <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Team</h2>
               </div>
               {/* Inline invite */}
-              <div className="relative group/invite">
-                <button className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
+              <div className="relative" ref={inviteMenuRef}>
+                <button
+                  onClick={() => setShowInviteMenu(v => !v)}
+                  className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors"
+                >
                   <UserPlus className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
                 {/* Invite dropdown */}
-                <div className="absolute right-0 top-full mt-1 w-44 rounded-lg bg-[#121212] border border-[#27272A] shadow-xl shadow-black/40 opacity-0 pointer-events-none group-hover/invite:opacity-100 group-hover/invite:pointer-events-auto transition-all z-10">
+                <div className={`absolute right-0 top-full mt-1 w-44 rounded-lg bg-[#121212] border border-[#27272A] shadow-xl shadow-black/40 transition-all z-10 ${
+                  showInviteMenu ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+                }`}>
                   {["2D_Artist", "3D_Modeler", "3D_Animator", "Technical_Art", "QA_Tester"].map(role => (
                     <button
                       key={role}
