@@ -195,6 +195,13 @@ export async function fetchAssetMetadata(token: string, assetId: string) {
   return res.json();
 }
 
+export async function fetchAssetVersions(token: string, assetId: string) {
+  const res = await fetch(`${API}/api/assets/${assetId}/versions`, { headers: headers(token) });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.versions || [];
+}
+
 export async function fetchSessionContext(token: string) {
   const res = await fetch(`${API}/api/unity/studio`, { headers: headers(token) });
   if (!res.ok) return null;

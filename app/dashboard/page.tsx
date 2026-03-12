@@ -146,6 +146,7 @@ export default function DashboardPage() {
   // ── FAZ 10: Inspector ──
   const [inspectAsset, setInspectAsset] = useState<any>(null);
   const [assetMeta, setAssetMeta] = useState<any>(null);
+  const [assetVersions, setAssetVersions] = useState<any[]>([]);
   const [metaLoading, setMetaLoading] = useState(false);
 
   // ── UI State ──
@@ -396,8 +397,12 @@ export default function DashboardPage() {
     if (!token) return;
     setInspectAsset(asset);
     setMetaLoading(true);
-    const data = await api.fetchAssetMetadata(token, asset.id);
-    setAssetMeta(data);
+    const [metaData, versions] = await Promise.all([
+      api.fetchAssetMetadata(token, asset.id),
+      api.fetchAssetVersions(token, asset.id),
+    ]);
+    setAssetMeta(metaData);
+    setAssetVersions(Array.isArray(versions) ? versions : []);
     setMetaLoading(false);
   };
 
@@ -427,9 +432,10 @@ export default function DashboardPage() {
   })();
   const compareAsset = (() => {
     if (!inspectAsset || inspectKind !== "image") return null;
+    const source = assetVersions.length > 0 ? assetVersions : libraryAssets;
     const currentBase = normalizeVersionBase(inspectAsset.filename);
     const currentVersion = extractVersionNumber(inspectAsset.filename);
-    const sameBase = (libraryAssets || []).filter((a: any) =>
+    const sameBase = (source || []).filter((a: any) =>
       a?.id !== inspectAsset.id &&
       a?.preview_url &&
       normalizeVersionBase(a?.filename) === currentBase
@@ -1451,7 +1457,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => { setInspectAsset(null); setAssetMeta(null); }}
+            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); }}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -1466,7 +1472,7 @@ export default function DashboardPage() {
                   <Cpu className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
                   <span className="text-sm font-semibold text-[#EDEDED]">Asset Inspector</span>
                 </div>
-                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
+                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
                   <X className="w-4 h-4" strokeWidth={1.5} />
                 </button>
               </div>
@@ -1737,39 +1743,134 @@ function VersionComparePanel({
   afterLabel: string;
 }) {
   const [split, setSplit] = useState(50);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [heatmapUrl, setHeatmapUrl] = useState<string | null>(null);
+  const [diffRatio, setDiffRatio] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!showHeatmap) return;
+
+    const load = (src: string) =>
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new window.Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+      });
+
+    (async () => {
+      try {
+        const [beforeImg, afterImg] = await Promise.all([load(beforeUrl), load(afterUrl)]);
+        if (cancelled) return;
+
+        const width = Math.max(1, Math.min(1024, afterImg.naturalWidth || beforeImg.naturalWidth || 1));
+        const height = Math.max(1, Math.min(1024, afterImg.naturalHeight || beforeImg.naturalHeight || 1));
+
+        const a = document.createElement("canvas");
+        const b = document.createElement("canvas");
+        const out = document.createElement("canvas");
+        a.width = b.width = out.width = width;
+        a.height = b.height = out.height = height;
+
+        const actx = a.getContext("2d", { willReadFrequently: true });
+        const bctx = b.getContext("2d", { willReadFrequently: true });
+        const octx = out.getContext("2d");
+        if (!actx || !bctx || !octx) return;
+
+        actx.drawImage(beforeImg, 0, 0, width, height);
+        bctx.drawImage(afterImg, 0, 0, width, height);
+        const ad = actx.getImageData(0, 0, width, height);
+        const bd = bctx.getImageData(0, 0, width, height);
+        const od = octx.createImageData(width, height);
+
+        let changed = 0;
+        const total = width * height;
+        for (let i = 0; i < ad.data.length; i += 4) {
+          const dr = Math.abs(ad.data[i] - bd.data[i]);
+          const dg = Math.abs(ad.data[i + 1] - bd.data[i + 1]);
+          const db = Math.abs(ad.data[i + 2] - bd.data[i + 2]);
+          const delta = dr + dg + db;
+          if (delta < 24) {
+            od.data[i] = 0;
+            od.data[i + 1] = 0;
+            od.data[i + 2] = 0;
+            od.data[i + 3] = 0;
+            continue;
+          }
+          changed += 1;
+          od.data[i] = 255;
+          od.data[i + 1] = Math.max(0, 235 - delta);
+          od.data[i + 2] = 0;
+          od.data[i + 3] = Math.min(240, 60 + Math.floor(delta * 0.8));
+        }
+
+        octx.putImageData(od, 0, 0);
+        setHeatmapUrl(out.toDataURL("image/png"));
+        setDiffRatio(changed / total);
+      } catch {
+        setHeatmapUrl(null);
+        setDiffRatio(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showHeatmap, beforeUrl, afterUrl]);
+
   return (
     <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
       <div className="flex items-center justify-between mb-2">
         <p className="text-[11px] font-semibold text-[#A1A1AA]">Version Compare (MVP)</p>
-        <p className="text-[10px] text-[#52525B]">{split}%</p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowHeatmap((v) => !v)}
+            className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide border transition-colors ${
+              showHeatmap
+                ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                : "bg-[#121212] text-[#71717A] border-[#27272A] hover:text-[#A1A1AA]"
+            }`}
+          >
+            Heatmap
+          </button>
+          <p className="text-[10px] text-[#52525B]">{showHeatmap ? (diffRatio !== null ? `${(diffRatio * 100).toFixed(1)}% changed` : "analyzing") : `${split}%`}</p>
+        </div>
       </div>
       <div className="relative h-64 rounded-md border border-[#27272A] bg-[#121212] overflow-hidden">
         <img src={beforeUrl} alt="before" className="absolute inset-0 w-full h-full object-contain" />
-        <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${split}%` }}>
-          <img src={afterUrl} alt="after" className="absolute inset-0 w-full h-full object-contain" />
-        </div>
-        <div className="absolute inset-y-0 w-px bg-white/70" style={{ left: `${split}%` }} />
-        <div
-          className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/60 text-[9px] text-[#EDEDED] border border-white/10"
-          title={beforeLabel}
-        >
+        {showHeatmap ? (
+          heatmapUrl ? (
+            <img src={heatmapUrl} alt="diff-heatmap" className="absolute inset-0 w-full h-full object-contain" />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center text-xs text-[#71717A]">Generating heatmap…</div>
+          )
+        ) : (
+          <>
+            <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${split}%` }}>
+              <img src={afterUrl} alt="after" className="absolute inset-0 w-full h-full object-contain" />
+            </div>
+            <div className="absolute inset-y-0 w-px bg-white/70" style={{ left: `${split}%` }} />
+          </>
+        )}
+        <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/60 text-[9px] text-[#EDEDED] border border-white/10" title={beforeLabel}>
           Before
         </div>
-        <div
-          className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[9px] text-[#EDEDED] border border-white/10"
-          title={afterLabel}
-        >
-          After
+        <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[9px] text-[#EDEDED] border border-white/10" title={afterLabel}>
+          {showHeatmap ? "Diff" : "After"}
         </div>
       </div>
-      <input
-        type="range"
-        min={0}
-        max={100}
-        value={split}
-        onChange={(e) => setSplit(Number(e.target.value))}
-        className="w-full mt-2 accent-[#3B82F6]"
-      />
+      {!showHeatmap && (
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={split}
+          onChange={(e) => setSplit(Number(e.target.value))}
+          className="w-full mt-2 accent-[#3B82F6]"
+        />
+      )}
       <p className="text-[10px] text-[#52525B] mt-1 truncate">
         {beforeLabel} → {afterLabel}
       </p>
