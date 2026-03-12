@@ -33,6 +33,20 @@ export async function fetchReviewQueue(token: string) {
   return data.queue || [];
 }
 
+export async function autoRouteReviewQueue(
+  token: string,
+  payload: { limit?: number; execute?: boolean } = {}
+) {
+  const res = await fetch(`${API}/api/review/queues/auto-route`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data;
+}
+
 export async function scoreAssetRisk(
   token: string,
   payload: { asset_id?: string; folder_id?: string; filename?: string; file_size_kb?: number; metadata?: Record<string, any> }

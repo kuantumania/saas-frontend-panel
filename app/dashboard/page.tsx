@@ -199,6 +199,7 @@ export default function DashboardPage() {
   const [showInviteMenu, setShowInviteMenu] = useState(false);
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isAutoRouting, setIsAutoRouting] = useState(false);
   const [queueFilter, setQueueFilter] = useState<"all" | "breach" | "at_risk" | "healthy">("all");
   const [queueQaFilter, setQueueQaFilter] = useState<"all" | "blocked" | "risky" | "ready">("all");
   const [annotationRefreshTick, setAnnotationRefreshTick] = useState(0);
@@ -355,6 +356,19 @@ export default function DashboardPage() {
     if (!token || !rejectingId) return;
     const ok = await api.rejectAsset(token, rejectingId, rejectReason);
     if (ok) { setToast("Asset rejected"); setRejectingId(null); setRejectReason(""); loadAll(); }
+  };
+
+  const handleAutoRoute = async () => {
+    if (!token) return;
+    setIsAutoRouting(true);
+    const res = await api.autoRouteReviewQueue(token, { execute: true, limit: 10 });
+    setIsAutoRouting(false);
+    if ((res as any)?.error) {
+      setToast(`Auto-route failed: ${(res as any).error}`);
+      return;
+    }
+    setToast(`Auto-routed ${res.routed_count}/${res.targeted} items`);
+    await loadAll();
   };
 
   const handleInvite = async (role: string) => {
@@ -1063,6 +1077,17 @@ export default function DashboardPage() {
               <span className="text-xs text-[#52525B]">{reviewQueue.length}</span>
             </div>
             <div className="flex items-center gap-4">
+              <button
+                onClick={handleAutoRoute}
+                disabled={isAutoRouting || reviewQueue.length === 0}
+                className={`px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wide transition-colors ${
+                  isAutoRouting || reviewQueue.length === 0
+                    ? "bg-white/[0.04] text-[#52525B] cursor-not-allowed"
+                    : "bg-[#3B82F6]/15 text-[#93C5FD] ring-1 ring-[#3B82F6]/30 hover:bg-[#3B82F6]/25"
+                }`}
+              >
+                {isAutoRouting ? "Routing..." : "Auto Route"}
+              </button>
               {(["all", "breach", "at_risk", "healthy"] as const).map((f) => (
                 <button
                   key={f}
@@ -1119,7 +1144,14 @@ export default function DashboardPage() {
                   <div key={`queue-${q.id}`} className="grid grid-cols-[1fr_90px_80px_70px_170px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] last:border-0 items-center hover:bg-white/[0.02]">
                     <button onClick={() => openInspector(q)} className="text-left min-w-0">
                       <p className="text-sm font-medium text-[#EDEDED] truncate">{q.filename}</p>
-                      <p className="text-[10px] text-[#52525B]">{q.uploader_name || "Unknown"} · {q.age_hours?.toFixed?.(1) || ageHours(q.created_at).toFixed(1)}h</p>
+                      <p className="text-[10px] text-[#52525B]">
+                        {q.uploader_name || "Unknown"} · {q.age_hours?.toFixed?.(1) || ageHours(q.created_at).toFixed(1)}h
+                      </p>
+                      {q.reviewer_suggestion?.name && (
+                        <p className="text-[10px] text-[#60A5FA]">
+                          Route → {q.reviewer_suggestion.name} ({q.reviewer_suggestion.role})
+                        </p>
+                      )}
                     </button>
                     <span className="text-xs font-semibold text-[#60A5FA]">P{q.priority_score ?? "—"}</span>
                     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ring-1 w-fit ${qa.cls}`}>{qa.label}</span>
