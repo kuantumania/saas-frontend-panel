@@ -26,6 +26,13 @@ export async function fetchPendingReview(token: string) {
   return data.assets || [];
 }
 
+export async function fetchReviewQueue(token: string) {
+  const res = await fetch(`${API}/api/review/queues`, { headers: headers(token) });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.queue || [];
+}
+
 export async function fetchLibrary(
   token: string,
   opts: { page?: number; status?: string; search?: string; folderId?: string; tagId?: string } = {}

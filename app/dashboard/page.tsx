@@ -138,6 +138,7 @@ export default function DashboardPage() {
   // ── Data ──
   const [stats, setStats] = useState({ totalMembers: 0, totalAssets: 0, pendingReview: 0, approved: 0 });
   const [pendingAssets, setPendingAssets] = useState<any[]>([]);
+  const [reviewQueue, setReviewQueue] = useState<any[]>([]);
   const [libraryAssets, setLibraryAssets] = useState<any[]>([]);
   const [libraryPagination, setLibraryPagination] = useState({ page: 1, total_pages: 1, total: 0, has_prev: false, has_next: false });
   const [members, setMembers] = useState<any[]>([]);
@@ -240,9 +241,10 @@ export default function DashboardPage() {
     try {
       const isLeadRole = (sessionUser?.role || "").toLowerCase() === "lead";
       if (isLeadRole) {
-        const [s, p, l, m, a, n, b, r, fld] = await Promise.all([
+        const [s, p, q, l, m, a, n, b, r, fld] = await Promise.all([
           api.fetchStats(token),
           api.fetchPendingReview(token),
+          api.fetchReviewQueue(token),
           api.fetchLibrary(token, { page: 1, status: "all" }),
           api.fetchMembers(token),
           api.fetchActivity(token),
@@ -253,6 +255,7 @@ export default function DashboardPage() {
         ]);
         setStats(s);
         setPendingAssets(p);
+        setReviewQueue(q || []);
         setLibraryAssets(l.assets || []);
         setLibraryPagination(l.pagination || {});
         setMembers(m);
@@ -275,6 +278,7 @@ export default function DashboardPage() {
         setNotifications(n.notifications || []);
         setUnreadCount(n.unread_count || 0);
         setPendingAssets([]);
+        setReviewQueue([]);
         setMembers([]);
         setBilling(null);
         setRules([]);
@@ -859,9 +863,19 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <div>
-                  {pendingAssets.slice(0, 6).map((a: any) => {
+                  {(reviewQueue.length ? reviewQueue : pendingAssets).slice(0, 6).map((a: any) => {
                     const ext = (a.filename || "").split(".").pop()?.toLowerCase();
                     const isImg = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext || "");
+                    const sla = a.sla_state
+                      ? {
+                          label: a.sla_state === "breach" ? "SLA Breach" : a.sla_state === "at_risk" ? "At Risk" : "Healthy",
+                          cls: a.sla_state === "breach"
+                            ? "bg-rose-500/10 text-rose-400 ring-rose-500/20"
+                            : a.sla_state === "at_risk"
+                              ? "bg-amber-500/10 text-amber-400 ring-amber-500/20"
+                              : "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
+                        }
+                      : slaState(a.created_at);
                     return (
                       <div
                         key={a.id}
@@ -884,12 +898,15 @@ export default function DashboardPage() {
                           </p>
                         </div>
                         <div className="flex flex-col items-end mr-1">
-                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ring-1 ${slaState(a.created_at).cls}`}>
-                            {slaState(a.created_at).label}
+                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ring-1 ${sla.cls}`}>
+                            {sla.label}
                           </span>
                           <span className="text-[10px] text-[#52525B] mt-1">
-                            {ageHours(a.created_at).toFixed(1)}h
+                            {(typeof a.age_hours === "number" ? a.age_hours : ageHours(a.created_at)).toFixed(1)}h
                           </span>
+                          {typeof a.priority_score === "number" && (
+                            <span className="text-[10px] text-[#3B82F6] mt-1">P{a.priority_score}</span>
+                          )}
                         </div>
 
                         {/* Actions — ghost buttons */}
@@ -1543,7 +1560,7 @@ export default function DashboardPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               onClick={e => e.stopPropagation()}
-              className="w-full max-w-3xl rounded-xl bg-[#121212] border border-[#27272A] shadow-2xl shadow-black/50 overflow-hidden"
+              className="w-full max-w-3xl max-h-[90vh] flex flex-col rounded-xl bg-[#121212] border border-[#27272A] shadow-2xl shadow-black/50 overflow-hidden"
             >
               {/* Header */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-[#1E1E1E]">
@@ -1556,6 +1573,7 @@ export default function DashboardPage() {
                 </button>
               </div>
 
+              <div className="min-h-0 flex-1 overflow-y-auto">
               {/* Asset Info */}
               <div className="px-5 py-3 border-b border-[#1E1E1E] flex items-center gap-3">
                 <div className="w-10 h-10 rounded-md bg-[#18181B] border border-[#27272A] flex items-center justify-center">
@@ -1634,7 +1652,7 @@ export default function DashboardPage() {
               )}
 
               {/* Metadata */}
-              <div className="px-5 py-4 max-h-96 overflow-y-auto">
+              <div className="px-5 py-4">
                 {metaLoading ? (
                   <div className="space-y-3">
                     {[1, 2, 3, 4].map(i => <div key={i} className="skeleton h-4 w-full rounded" />)}
@@ -1700,6 +1718,7 @@ export default function DashboardPage() {
                     <p className="text-[10px] text-[#3F3F46] mt-1">Upload a new version to extract metadata</p>
                   </div>
                 )}
+              </div>
               </div>
             </motion.div>
           </motion.div>
