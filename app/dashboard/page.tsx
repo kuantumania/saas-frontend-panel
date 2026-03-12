@@ -245,16 +245,24 @@ export default function DashboardPage() {
   // ── FAZ 9: Rules Handlers ──
   const handleCreateRule = async () => {
     if (!token) return;
-    const result = await api.createRule(
-      token, newRuleType, newRuleConfig, newRuleSeverity,
-      newRuleFolderId || undefined
-    );
-    if (result) {
-      setToast("Rule created");
-      setShowRuleForm(false);
-      setNewRuleConfig({});
-      const r = await api.fetchRules(token);
-      setRules(r);
+    try {
+      const result = await api.createRule(
+        token, newRuleType, newRuleConfig, newRuleSeverity,
+        newRuleFolderId || undefined
+      );
+      if (result?.error) {
+        setToast(`Error: ${result.error}`);
+        return;
+      }
+      if (result?.success) {
+        setToast("Rule created");
+        setShowRuleForm(false);
+        setNewRuleConfig({});
+        const r = await api.fetchRules(token);
+        setRules(r);
+      }
+    } catch (e: any) {
+      setToast(`Error: ${e.message || 'Network error'}`);
     }
   };
 

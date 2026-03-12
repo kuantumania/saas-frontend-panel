@@ -158,8 +158,9 @@ export async function createRule(
     headers: headers(token),
     body: JSON.stringify(body),
   });
-  if (!res.ok) return null;
-  return res.json();
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data;
 }
 
 export async function updateRule(
