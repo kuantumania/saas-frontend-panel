@@ -114,6 +114,38 @@ function ownerSlaBadge(state?: string) {
   return { label: "Unassigned", cls: "bg-fuchsia-500/10 text-fuchsia-300 ring-fuchsia-500/25" };
 }
 
+function unitySyncPosture(health: any) {
+  const successRate = Number(health?.success_rate || 0);
+  const failed = Number(health?.failed_count || 0);
+  const total = Number(health?.total_imports || 0);
+  if (total < 5) {
+    return { label: "Cold Start", cls: "bg-zinc-500/10 text-zinc-300 ring-zinc-500/25", note: "Not enough signal yet." };
+  }
+  if (successRate >= 0.97 && failed <= 1) {
+    return { label: "Healthy", cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20", note: "Delivery flow is stable." };
+  }
+  if (successRate < 0.85 || failed >= 10) {
+    return { label: "Blocked", cls: "bg-rose-500/10 text-rose-400 ring-rose-500/20", note: "Failures are hurting Unity delivery speed." };
+  }
+  if (successRate < 0.93 || failed >= 4) {
+    return { label: "Risky", cls: "bg-amber-500/10 text-amber-400 ring-amber-500/20", note: "Monitor failures and run fixes this sprint." };
+  }
+  return { label: "Watch", cls: "bg-blue-500/10 text-blue-300 ring-blue-500/20", note: "Mostly stable, but regressions exist." };
+}
+
+function unitySyncActionHint(health: any) {
+  const failedReasons = ((health?.breakdown || []) as any[])
+    .filter((b: any) => b?.status === "failed")
+    .sort((a: any, b: any) => Number(b.count || 0) - Number(a.count || 0));
+  const top = String(failedReasons[0]?.reason_code || "").toLowerCase();
+  if (top.includes("auth")) return "Top fix: refresh Unity plugin session token.";
+  if (top.includes("rate")) return "Top fix: increase auto-sync interval and retry later.";
+  if (top.includes("timeout") || top.includes("network")) return "Top fix: check network stability and keep auto-sync enabled.";
+  if (top.includes("invalid")) return "Top fix: update plugin/back-end contract to latest build.";
+  if (failedReasons.length === 0) return "Top fix: no action needed right now.";
+  return "Top fix: inspect top reason-code and patch contract/import pipeline.";
+}
+
 function toLocalDateTimeInput(iso?: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -2499,9 +2531,23 @@ export default function DashboardPage() {
                     <div className="skeleton h-3 w-full rounded" />
                     <div className="skeleton h-3 w-4/5 rounded" />
                   </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-3 gap-2 mb-2">
+	                ) : (
+	                  <>
+                    {(() => {
+                      const posture = unitySyncPosture(unitySyncHealth);
+                      return (
+                        <div className="mb-2 rounded-md border border-[#1E1E1E] bg-[#0A0A0A] px-2 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={`inline-flex items-center rounded px-2 py-0.5 text-[9px] font-medium ring-1 ${posture.cls}`}>
+                              {posture.label}
+                            </span>
+                            <span className="text-[9px] text-[#52525B]">{posture.note}</span>
+                          </div>
+                          <p className="mt-1 text-[9px] text-[#71717A]">{unitySyncActionHint(unitySyncHealth)}</p>
+                        </div>
+                      );
+                    })()}
+	                    <div className="grid grid-cols-3 gap-2 mb-2">
                       <div className="rounded-md border border-[#1E1E1E] bg-[#0A0A0A] px-2 py-1.5">
                         <p className="text-[9px] uppercase text-[#52525B]">Total</p>
                         <p className="text-[11px] text-[#EDEDED]">{unitySyncHealth.total_imports || 0}</p>
