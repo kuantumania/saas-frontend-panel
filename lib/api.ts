@@ -74,6 +74,21 @@ export async function escalateReviewQueue(
   return data;
 }
 
+export async function upsertReviewAssignment(
+  token: string,
+  assetId: string,
+  payload: { assignee_user_id?: string | null; due_at?: string | null; note?: string }
+) {
+  const res = await fetch(`${API}/api/assets/${assetId}/review-assignment`, {
+    method: "PUT",
+    headers: headers(token),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data;
+}
+
 export async function scoreAssetRisk(
   token: string,
   payload: { asset_id?: string; folder_id?: string; filename?: string; file_size_kb?: number; metadata?: Record<string, any> }

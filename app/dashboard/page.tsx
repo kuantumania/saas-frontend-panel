@@ -29,6 +29,16 @@ function timeAgo(d: string) {
   return `${Math.floor(s / 86400)}d`;
 }
 
+function dueLabel(d?: string) {
+  if (!d) return "no due";
+  const sec = Math.floor((new Date(d).getTime() - Date.now()) / 1000);
+  const abs = Math.abs(sec);
+  if (abs < 60) return sec >= 0 ? "due now" : "overdue";
+  if (abs < 3600) return sec >= 0 ? `in ${Math.floor(abs / 60)}m` : `${Math.floor(abs / 60)}m overdue`;
+  if (abs < 86400) return sec >= 0 ? `in ${Math.floor(abs / 3600)}h` : `${Math.floor(abs / 3600)}h overdue`;
+  return sec >= 0 ? `in ${Math.floor(abs / 86400)}d` : `${Math.floor(abs / 86400)}d overdue`;
+}
+
 function formatSize(kb?: number) {
   if (!kb) return "—";
   return kb < 1024 ? `${kb} KB` : `${(kb / 1024).toFixed(1)} MB`;
@@ -65,6 +75,30 @@ function qaGateBadge(state: "blocked" | "risky" | "ready") {
     return { label: "Risky", cls: "bg-amber-500/10 text-amber-400 ring-amber-500/20" };
   }
   return { label: "Ready", cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
+}
+
+function ownerSlaBadge(state?: string) {
+  const s = String(state || "unassigned");
+  if (s === "overdue") return { label: "Owner Overdue", cls: "bg-rose-500/10 text-rose-400 ring-rose-500/20" };
+  if (s === "due_soon") return { label: "Due Soon", cls: "bg-amber-500/10 text-amber-400 ring-amber-500/20" };
+  if (s === "on_track") return { label: "On Track", cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
+  if (s === "no_due_date") return { label: "No Due Date", cls: "bg-zinc-500/10 text-zinc-400 ring-zinc-500/20" };
+  return { label: "Unassigned", cls: "bg-fuchsia-500/10 text-fuchsia-300 ring-fuchsia-500/25" };
+}
+
+function toLocalDateTimeInput(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fromLocalDateTimeInput(value?: string) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
 }
 
 function fileIcon(type?: string) {
@@ -199,6 +233,11 @@ export default function DashboardPage() {
   const [isAutoRouting, setIsAutoRouting] = useState(false);
   const [isEscalatingQueue, setIsEscalatingQueue] = useState(false);
   const [showQueueGlossary, setShowQueueGlossary] = useState(false);
+  const [assigningAsset, setAssigningAsset] = useState<any>(null);
+  const [assignUserId, setAssignUserId] = useState("");
+  const [assignDueAt, setAssignDueAt] = useState("");
+  const [assignNote, setAssignNote] = useState("");
+  const [savingAssignment, setSavingAssignment] = useState(false);
   const [queueFilter, setQueueFilter] = useState<"all" | "critical" | "breach" | "at_risk" | "healthy">("all");
   const [queueQaFilter, setQueueQaFilter] = useState<"all" | "blocked" | "risky" | "ready">("all");
   const [queueInsights, setQueueInsights] = useState<any>(null);
@@ -394,6 +433,35 @@ export default function DashboardPage() {
       return;
     }
     setToast(`Escalated ${res.escalated_count}/${res.matched} items`);
+    await loadAll();
+  };
+
+  const openAssignModal = (asset: any) => {
+    const assignment = asset?.review_assignment || {};
+    setAssigningAsset(asset);
+    setAssignUserId(String(assignment.assignee_user_id || ""));
+    setAssignDueAt(toLocalDateTimeInput(assignment.due_at));
+    setAssignNote(String(assignment.note || ""));
+  };
+
+  const handleSaveAssignment = async () => {
+    if (!token || !assigningAsset?.id) return;
+    setSavingAssignment(true);
+    const res = await api.upsertReviewAssignment(token, assigningAsset.id, {
+      assignee_user_id: assignUserId || null,
+      due_at: fromLocalDateTimeInput(assignDueAt),
+      note: assignNote,
+    });
+    setSavingAssignment(false);
+    if ((res as any)?.error) {
+      setToast(`Assignment failed: ${(res as any).error}`);
+      return;
+    }
+    setToast("Review owner updated");
+    setAssigningAsset(null);
+    setAssignUserId("");
+    setAssignDueAt("");
+    setAssignNote("");
     await loadAll();
   };
 
@@ -928,6 +996,16 @@ export default function DashboardPage() {
               </p>
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Owner Unassigned</p>
+              <p className="text-lg font-semibold text-fuchsia-300">{queueInsights?.owner_sla?.unassigned ?? 0}</p>
+            </div>
+            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Owner Overdue</p>
+              <p className="text-lg font-semibold text-rose-400">{queueInsights?.owner_sla?.overdue ?? 0}</p>
+            </div>
+          </div>
           <p className="text-[10px] text-[#52525B] mt-2">
             SLA Policy: At Risk {queuePolicy?.at_risk_hours ?? 8}h · Breach {queuePolicy?.breach_hours ?? 24}h · Critical {queuePolicy?.critical_hours ?? 48}h
           </p>
@@ -1210,6 +1288,9 @@ export default function DashboardPage() {
                         `Priority (Pxx)` = yaş + dosya boyutu ağırlıklı operasyon skoru. `Auto Route` önerilen reviewer'a dağıtır.
                         `Run Escalation` ise policy + cooldown kurallarıyla kritik item'lar için uyarı üretir.
                       </p>
+                      <p className="text-[10px] text-[#71717A] mt-1">
+                        Owner SLA: `Unassigned`, `No Due Date`, `On Track`, `Due Soon`, `Owner Overdue`.
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -1248,6 +1329,10 @@ export default function DashboardPage() {
                       <p className="text-[10px] text-[#52525B]">
                         {q.uploader_name || "Unknown"} · {q.age_hours?.toFixed?.(1) || ageHours(q.created_at).toFixed(1)}h
                       </p>
+                      <p className="text-[10px] text-[#A1A1AA]">
+                        Owner: {q.review_assignment?.assignee_name || "Unassigned"}
+                        {q.review_assignment?.due_at ? ` · ${dueLabel(q.review_assignment.due_at)}` : ""}
+                      </p>
                       {q.reviewer_suggestion?.name && (
                         <p className="text-[10px] text-[#60A5FA]">
                           Route → {q.reviewer_suggestion.name} ({q.reviewer_suggestion.role})
@@ -1258,6 +1343,15 @@ export default function DashboardPage() {
                     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ring-1 w-fit ${qa.cls}`}>{qa.label}</span>
                     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ring-1 w-fit ${sla.cls}`}>{sla.label}</span>
                     <div className="flex items-center gap-1">
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ring-1 ${ownerSlaBadge(q.owner_sla_state).cls}`}>
+                        {ownerSlaBadge(q.owner_sla_state).label}
+                      </span>
+                      <button
+                        onClick={() => openAssignModal(q)}
+                        className="px-2.5 py-1 rounded text-[10px] bg-blue-500/10 text-blue-300 ring-1 ring-blue-500/20 hover:bg-blue-500/20 transition-colors"
+                      >
+                        Assign
+                      </button>
                       <button
                         onClick={() => handleApprove(q.id)}
                         className="px-2.5 py-1 rounded text-[10px] bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
@@ -1839,6 +1933,88 @@ export default function DashboardPage() {
                   className="px-3 py-1.5 rounded-md text-xs font-medium bg-rose-500/10 text-rose-400 ring-1 ring-rose-500/20 hover:bg-rose-500/20 transition-colors"
                 >
                   Reject
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── ASSIGN OWNER MODAL ───────────────────── */}
+      <AnimatePresence>
+        {assigningAsset && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setAssigningAsset(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md rounded-xl bg-[#121212] border border-[#27272A] p-6 shadow-2xl shadow-black/50"
+            >
+              <h3 className="text-sm font-semibold text-[#EDEDED] mb-1">Assign Review Owner</h3>
+              <p className="text-xs text-[#52525B] mb-4 truncate">{assigningAsset.filename}</p>
+
+              <div className="space-y-3">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Owner</p>
+                  <select
+                    value={assignUserId}
+                    onChange={(e) => setAssignUserId(e.target.value)}
+                    className="w-full h-9 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-sm text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                  >
+                    <option value="">Unassigned</option>
+                    {members
+                      .filter((m: any) => m.status === "claimed" || m.status === "active")
+                      .map((m: any) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name || "Unknown"} ({String(m.role || "").replace(/_/g, " ")})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Due Date</p>
+                  <input
+                    type="datetime-local"
+                    value={assignDueAt}
+                    onChange={(e) => setAssignDueAt(e.target.value)}
+                    className="w-full h-9 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-sm text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Note</p>
+                  <textarea
+                    value={assignNote}
+                    onChange={(e) => setAssignNote(e.target.value)}
+                    placeholder="Optional assignment context"
+                    className="w-full h-20 px-3 py-2 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-sm text-[#EDEDED] placeholder:text-[#3F3F46] resize-none focus:border-[#3F3F46] focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  onClick={() => setAssigningAsset(null)}
+                  className="px-3 py-1.5 rounded-md text-xs text-[#71717A] hover:text-[#A1A1AA] hover:bg-white/[0.04] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveAssignment}
+                  disabled={savingAssignment}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    savingAssignment
+                      ? "bg-white/[0.04] text-[#52525B] cursor-not-allowed"
+                      : "bg-blue-500/10 text-blue-300 ring-1 ring-blue-500/20 hover:bg-blue-500/20"
+                  }`}
+                >
+                  {savingAssignment ? "Saving..." : "Save Assignment"}
                 </button>
               </div>
             </motion.div>
