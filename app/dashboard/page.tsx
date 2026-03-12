@@ -7,7 +7,8 @@ import {
   MoreHorizontal, Check, X, MessageCircle, Upload, UserPlus,
   Activity, ChevronRight, Copy, Eye, EyeOff, Gamepad2,
   CreditCard, ExternalLink, Layers, ArrowUpRight,
-  FileText, Image, Box, Volume2, Folder,
+  FileText, Image, Box, Volume2, Folder, Shield,
+  AlertTriangle, Trash2, Plus, Info, Cpu, Zap,
 } from "lucide-react";
 import * as api from "@/lib/api";
 
@@ -94,6 +95,20 @@ export default function DashboardPage() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [billing, setBilling] = useState<any>(null);
 
+  // ── FAZ 9: Rules ──
+  const [rules, setRules] = useState<any[]>([]);
+  const [showRuleForm, setShowRuleForm] = useState(false);
+  const [newRuleType, setNewRuleType] = useState("max_resolution");
+  const [newRuleSeverity, setNewRuleSeverity] = useState("error");
+  const [newRuleFolderId, setNewRuleFolderId] = useState("");
+  const [newRuleConfig, setNewRuleConfig] = useState<Record<string, any>>({});
+  const [folders, setFolders] = useState<any[]>([]);
+
+  // ── FAZ 10: Inspector ──
+  const [inspectAsset, setInspectAsset] = useState<any>(null);
+  const [assetMeta, setAssetMeta] = useState<any>(null);
+  const [metaLoading, setMetaLoading] = useState(false);
+
   // ── UI State ──
   const [loading, setLoading] = useState(true);
   const [libFilter, setLibFilter] = useState("all");
@@ -137,7 +152,7 @@ export default function DashboardPage() {
     if (!token) return;
     setLoading(true);
     try {
-      const [s, p, l, m, a, n, b] = await Promise.all([
+      const [s, p, l, m, a, n, b, r, fld] = await Promise.all([
         api.fetchStats(token),
         api.fetchPendingReview(token),
         api.fetchLibrary(token, { page: 1, status: "all" }),
@@ -145,6 +160,8 @@ export default function DashboardPage() {
         api.fetchActivity(token),
         api.fetchNotifications(token),
         api.fetchBilling(token),
+        api.fetchRules(token),
+        api.fetchFolders(token),
       ]);
       setStats(s);
       setPendingAssets(p);
@@ -155,6 +172,8 @@ export default function DashboardPage() {
       setNotifications(n.notifications || []);
       setUnreadCount(n.unread_count || 0);
       setBilling(b);
+      setRules(r);
+      setFolders(fld);
     } catch (e) {
       console.error("Dashboard load error:", e);
     }
@@ -221,6 +240,41 @@ export default function DashboardPage() {
       setLibSearch(val);
       setLibPage(1);
     }, 300);
+  };
+
+  // ── FAZ 9: Rules Handlers ──
+  const handleCreateRule = async () => {
+    if (!token) return;
+    const result = await api.createRule(
+      token, newRuleType, newRuleConfig, newRuleSeverity,
+      newRuleFolderId || undefined
+    );
+    if (result) {
+      setToast("Rule created");
+      setShowRuleForm(false);
+      setNewRuleConfig({});
+      const r = await api.fetchRules(token);
+      setRules(r);
+    }
+  };
+
+  const handleDeleteRule = async (ruleId: string) => {
+    if (!token) return;
+    const ok = await api.deleteRule(token, ruleId);
+    if (ok) {
+      setToast("Rule deleted");
+      setRules(prev => prev.filter(r => r.id !== ruleId));
+    }
+  };
+
+  // ── FAZ 10: Inspector Handler ──
+  const openInspector = async (asset: any) => {
+    if (!token) return;
+    setInspectAsset(asset);
+    setMetaLoading(true);
+    const data = await api.fetchAssetMetadata(token, asset.id);
+    setAssetMeta(data);
+    setMetaLoading(false);
   };
 
   if (!token) return null;
@@ -558,7 +612,8 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={a.id}
-                      className="grid grid-cols-[40px_1fr_120px_100px_80px_80px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] last:border-0 hover:bg-white/[0.02] transition-colors cursor-default group"
+                      onClick={() => openInspector(a)}
+                      className="grid grid-cols-[40px_1fr_120px_100px_80px_80px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] last:border-0 hover:bg-white/[0.02] transition-colors cursor-pointer group"
                     >
                       <div className="w-10 h-10 rounded-md bg-[#18181B] border border-[#27272A] overflow-hidden flex items-center justify-center flex-shrink-0">
                         {isImg && a.preview_url ? (
@@ -608,6 +663,238 @@ export default function DashboardPage() {
                 >
                   Next →
                 </button>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* ── FAZ 9: ASSET RULES ──────────────────── */}
+        <section className="mb-10">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-[#F59E0B]" strokeWidth={1.5} />
+              <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Asset Rules</h2>
+              <span className="text-xs text-[#52525B]">{rules.length}</span>
+            </div>
+            <button
+              onClick={() => setShowRuleForm(!showRuleForm)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-[#F59E0B]/10 text-[#F59E0B] ring-1 ring-[#F59E0B]/20 hover:bg-[#F59E0B]/20 transition-colors"
+            >
+              <Plus className="w-3 h-3" strokeWidth={2} />
+              Add Rule
+            </button>
+          </div>
+
+          {/* Rule Creation Form */}
+          <AnimatePresence>
+            {showRuleForm && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-4 overflow-hidden"
+              >
+                <div className="rounded-xl border border-[#27272A] bg-[#121212] p-5">
+                  <div className="grid grid-cols-4 gap-4 mb-4">
+                    {/* Rule Type */}
+                    <div>
+                      <label className="text-[10px] font-semibold tracking-wider uppercase text-[#52525B] mb-1.5 block">Rule Type</label>
+                      <select
+                        value={newRuleType}
+                        onChange={e => { setNewRuleType(e.target.value); setNewRuleConfig({}); }}
+                        className="w-full h-9 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                      >
+                        <option value="max_resolution">Max Resolution</option>
+                        <option value="min_resolution">Min Resolution</option>
+                        <option value="allowed_formats">Allowed Formats</option>
+                        <option value="max_file_size">Max File Size</option>
+                        <option value="max_poly_count">Max Poly Count</option>
+                        <option value="max_vertex_count">Max Vertex Count</option>
+                        <option value="naming_pattern">Naming Pattern</option>
+                        <option value="sample_rate">Sample Rate</option>
+                        <option value="max_duration">Max Duration</option>
+                        <option value="aspect_ratio">Aspect Ratio</option>
+                        <option value="required_alpha">Require Alpha</option>
+                      </select>
+                    </div>
+
+                    {/* Folder */}
+                    <div>
+                      <label className="text-[10px] font-semibold tracking-wider uppercase text-[#52525B] mb-1.5 block">Folder</label>
+                      <select
+                        value={newRuleFolderId}
+                        onChange={e => setNewRuleFolderId(e.target.value)}
+                        className="w-full h-9 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                      >
+                        <option value="">All (Studio-wide)</option>
+                        {folders.map((f: any) => (
+                          <option key={f.id} value={f.id}>{f.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Config based on type */}
+                    <div>
+                      <label className="text-[10px] font-semibold tracking-wider uppercase text-[#52525B] mb-1.5 block">Value</label>
+                      {(newRuleType === 'max_resolution' || newRuleType === 'min_resolution') && (
+                        <div className="flex gap-1.5">
+                          <input
+                            type="number" placeholder="Width"
+                            onChange={e => setNewRuleConfig(prev => ({ ...prev, [`${newRuleType === 'max_resolution' ? 'max' : 'min'}_width`]: parseInt(e.target.value) || 0 }))}
+                            className="w-1/2 h-9 px-2 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                          />
+                          <input
+                            type="number" placeholder="Height"
+                            onChange={e => setNewRuleConfig(prev => ({ ...prev, [`${newRuleType === 'max_resolution' ? 'max' : 'min'}_height`]: parseInt(e.target.value) || 0 }))}
+                            className="w-1/2 h-9 px-2 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                          />
+                        </div>
+                      )}
+                      {newRuleType === 'allowed_formats' && (
+                        <input
+                          type="text" placeholder="png, jpg, webp"
+                          onChange={e => setNewRuleConfig({ allowed_formats: e.target.value.split(',').map(s => s.trim()) })}
+                          className="w-full h-9 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                        />
+                      )}
+                      {newRuleType === 'max_file_size' && (
+                        <input
+                          type="number" placeholder="KB"
+                          onChange={e => setNewRuleConfig({ max_file_size_kb: parseInt(e.target.value) || 0 })}
+                          className="w-full h-9 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                        />
+                      )}
+                      {(newRuleType === 'max_poly_count' || newRuleType === 'max_vertex_count') && (
+                        <input
+                          type="number" placeholder="Count"
+                          onChange={e => setNewRuleConfig({ [newRuleType]: parseInt(e.target.value) || 0 })}
+                          className="w-full h-9 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                        />
+                      )}
+                      {newRuleType === 'naming_pattern' && (
+                        <input
+                          type="text" placeholder="^TX_.*"
+                          onChange={e => setNewRuleConfig({ naming_pattern: e.target.value })}
+                          className="w-full h-9 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#EDEDED] font-mono focus:border-[#3F3F46] focus:outline-none"
+                        />
+                      )}
+                      {newRuleType === 'max_duration' && (
+                        <input
+                          type="number" placeholder="Seconds"
+                          onChange={e => setNewRuleConfig({ max_duration_seconds: parseFloat(e.target.value) || 0 })}
+                          className="w-full h-9 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                        />
+                      )}
+                      {newRuleType === 'aspect_ratio' && (
+                        <input
+                          type="text" placeholder="1:1 or 16:9"
+                          onChange={e => setNewRuleConfig({ aspect_ratio: e.target.value })}
+                          className="w-full h-9 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                        />
+                      )}
+                      {newRuleType === 'sample_rate' && (
+                        <input
+                          type="text" placeholder="44100, 48000"
+                          onChange={e => setNewRuleConfig({ sample_rate: e.target.value.split(',').map(s => parseInt(s.trim())) })}
+                          className="w-full h-9 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                        />
+                      )}
+                      {newRuleType === 'required_alpha' && (
+                        <select
+                          onChange={e => setNewRuleConfig({ required_alpha: e.target.value === 'true' })}
+                          className="w-full h-9 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#EDEDED] focus:border-[#3F3F46] focus:outline-none"
+                        >
+                          <option value="true">Required</option>
+                          <option value="false">Not Required</option>
+                        </select>
+                      )}
+                    </div>
+
+                    {/* Severity */}
+                    <div>
+                      <label className="text-[10px] font-semibold tracking-wider uppercase text-[#52525B] mb-1.5 block">Severity</label>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => setNewRuleSeverity('error')}
+                          className={`flex-1 h-9 rounded-lg text-xs font-medium transition-colors ${
+                            newRuleSeverity === 'error'
+                              ? 'bg-rose-500/10 text-rose-400 ring-1 ring-rose-500/20'
+                              : 'bg-[#0A0A0A] text-[#52525B] border border-[#27272A] hover:text-[#A1A1AA]'
+                          }`}
+                        >
+                          Block
+                        </button>
+                        <button
+                          onClick={() => setNewRuleSeverity('warning')}
+                          className={`flex-1 h-9 rounded-lg text-xs font-medium transition-colors ${
+                            newRuleSeverity === 'warning'
+                              ? 'bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20'
+                              : 'bg-[#0A0A0A] text-[#52525B] border border-[#27272A] hover:text-[#A1A1AA]'
+                          }`}
+                        >
+                          Warn
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => setShowRuleForm(false)} className="px-3 py-1.5 rounded-md text-xs text-[#71717A] hover:text-[#A1A1AA] hover:bg-white/[0.04] transition-colors">
+                      Cancel
+                    </button>
+                    <button onClick={handleCreateRule} className="px-4 py-1.5 rounded-md text-xs font-medium bg-[#F59E0B]/10 text-[#F59E0B] ring-1 ring-[#F59E0B]/20 hover:bg-[#F59E0B]/20 transition-colors">
+                      Create Rule
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Rules List */}
+          <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] overflow-hidden">
+            {rules.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Shield className="w-8 h-8 text-[#27272A] mb-3" strokeWidth={1} />
+                <p className="text-sm font-medium text-[#52525B]">No rules defined</p>
+                <p className="text-xs text-[#3F3F46] mt-1">Set upload rules for your folders</p>
+              </div>
+            ) : (
+              <div>
+                <div className="grid grid-cols-[1fr_120px_120px_80px_40px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] text-[10px] font-semibold tracking-[0.1em] uppercase text-[#3F3F46]">
+                  <span>Rule</span>
+                  <span>Folder</span>
+                  <span>Value</span>
+                  <span>Severity</span>
+                  <span />
+                </div>
+                {rules.map((r: any) => (
+                  <div key={r.id} className="grid grid-cols-[1fr_120px_120px_80px_40px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] last:border-0 hover:bg-white/[0.02] transition-colors items-center">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-3.5 h-3.5 text-[#F59E0B] flex-shrink-0" strokeWidth={1.5} />
+                      <span className="text-xs font-medium text-[#EDEDED]">{r.rule_type?.replace(/_/g, ' ')}</span>
+                    </div>
+                    <span className="text-xs text-[#52525B] truncate">
+                      {r.folder_id ? (folders.find((f: any) => f.id === r.folder_id)?.name || 'Folder') : 'All'}
+                    </span>
+                    <span className="text-xs text-[#71717A] font-mono truncate">
+                      {JSON.stringify(r.rule_config).slice(1, -1).slice(0, 20)}
+                    </span>
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ring-1 w-fit ${
+                      r.severity === 'error'
+                        ? 'bg-rose-500/10 text-rose-400 ring-rose-500/20'
+                        : 'bg-amber-500/10 text-amber-400 ring-amber-500/20'
+                    }`}>
+                      {r.severity === 'error' ? 'Block' : 'Warn'}
+                    </span>
+                    <button
+                      onClick={() => handleDeleteRule(r.id)}
+                      className="p-1 rounded-md hover:bg-rose-500/10 text-[#3F3F46] hover:text-rose-400 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" strokeWidth={1.5} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -812,6 +1099,116 @@ export default function DashboardPage() {
                 >
                   Reject
                 </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── FAZ 10: ASSET INSPECTOR MODAL ────────── */}
+      <AnimatePresence>
+        {inspectAsset && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => { setInspectAsset(null); setAssetMeta(null); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-lg rounded-xl bg-[#121212] border border-[#27272A] shadow-2xl shadow-black/50 overflow-hidden"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-[#1E1E1E]">
+                <div className="flex items-center gap-2.5">
+                  <Cpu className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
+                  <span className="text-sm font-semibold text-[#EDEDED]">Asset Inspector</span>
+                </div>
+                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
+                  <X className="w-4 h-4" strokeWidth={1.5} />
+                </button>
+              </div>
+
+              {/* Asset Info */}
+              <div className="px-5 py-3 border-b border-[#1E1E1E] flex items-center gap-3">
+                <div className="w-10 h-10 rounded-md bg-[#18181B] border border-[#27272A] flex items-center justify-center">
+                  {fileIcon(inspectAsset.file_type)}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-[#EDEDED]">{inspectAsset.filename}</p>
+                  <p className="text-xs text-[#52525B]">{formatSize(inspectAsset.file_size_kb)} · {inspectAsset.uploader_name || 'Unknown'}</p>
+                </div>
+                <div className="ml-auto"><StatusBadge status={inspectAsset.status} /></div>
+              </div>
+
+              {/* Metadata */}
+              <div className="px-5 py-4 max-h-96 overflow-y-auto">
+                {metaLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3, 4].map(i => <div key={i} className="skeleton h-4 w-full rounded" />)}
+                  </div>
+                ) : assetMeta?.metadata ? (
+                  <div className="space-y-4">
+                    {/* Type badge */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-md bg-[#3B82F6]/10 text-[#3B82F6] ring-1 ring-[#3B82F6]/20">
+                        {assetMeta.metadata.type || 'Unknown'}
+                      </span>
+                      {assetMeta.metadata.format && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-white/[0.04] text-[#71717A] ring-1 ring-white/[0.06]">
+                          {assetMeta.metadata.format}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Metadata Grid */}
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                      {Object.entries(assetMeta.metadata)
+                        .filter(([k]) => !['type', 'format', 'error'].includes(k))
+                        .map(([key, value]) => (
+                          <div key={key} className="flex items-center justify-between py-1.5 border-b border-[#1E1E1E]/50">
+                            <span className="text-[10px] font-medium text-[#52525B] uppercase tracking-wider">
+                              {key.replace(/_/g, ' ')}
+                            </span>
+                            <span className="text-xs font-mono text-[#EDEDED]">
+                              {typeof value === 'boolean' ? (value ? '✓' : '✗') : String(value)}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+
+                    {/* Violations */}
+                    {assetMeta.violations && assetMeta.violations.length > 0 && (
+                      <div className="mt-3">
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-400" strokeWidth={1.5} />
+                          <span className="text-[10px] font-semibold tracking-wider uppercase text-rose-400">Rule Violations</span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {assetMeta.violations.map((v: any, i: number) => (
+                            <div key={i} className={`px-3 py-2 rounded-lg text-xs ${
+                              v.severity === 'error'
+                                ? 'bg-rose-500/5 text-rose-300 ring-1 ring-rose-500/10'
+                                : 'bg-amber-500/5 text-amber-300 ring-1 ring-amber-500/10'
+                            }`}>
+                              {v.message}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <Info className="w-6 h-6 text-[#27272A] mb-2" strokeWidth={1} />
+                    <p className="text-xs text-[#52525B]">No metadata available</p>
+                    <p className="text-[10px] text-[#3F3F46] mt-1">Upload a new version to extract metadata</p>
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>

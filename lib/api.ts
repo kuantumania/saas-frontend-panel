@@ -131,3 +131,65 @@ export async function fetchTags(token: string) {
   const data = await res.json();
   return data.tags || [];
 }
+
+// ════════════════════════════════════════
+// FAZ 9: ASSET RULES
+// ════════════════════════════════════════
+
+export async function fetchRules(token: string, folderId?: string) {
+  const params = folderId ? `?folder_id=${folderId}` : "";
+  const res = await fetch(`${API}/api/rules${params}`, { headers: headers(token) });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.rules || [];
+}
+
+export async function createRule(
+  token: string,
+  ruleType: string,
+  config: Record<string, any>,
+  severity: string = "error",
+  folderId?: string
+) {
+  const body: Record<string, any> = { rule_type: ruleType, config, severity };
+  if (folderId) body.folder_id = folderId;
+  const res = await fetch(`${API}/api/rules`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function updateRule(
+  token: string,
+  ruleId: string,
+  data: { config?: Record<string, any>; severity?: string; is_active?: boolean }
+) {
+  const res = await fetch(`${API}/api/rules/${ruleId}`, {
+    method: "PUT",
+    headers: headers(token),
+    body: JSON.stringify(data),
+  });
+  return res.ok;
+}
+
+export async function deleteRule(token: string, ruleId: string) {
+  const res = await fetch(`${API}/api/rules/${ruleId}`, {
+    method: "DELETE",
+    headers: headers(token),
+  });
+  return res.ok;
+}
+
+// ════════════════════════════════════════
+// FAZ 10: ASSET METADATA
+// ════════════════════════════════════════
+
+export async function fetchAssetMetadata(token: string, assetId: string) {
+  const res = await fetch(`${API}/api/assets/${assetId}/metadata`, { headers: headers(token) });
+  if (!res.ok) return null;
+  return res.json();
+}
+
