@@ -1239,7 +1239,10 @@ export default function DashboardPage() {
 
               {inspectKind === "image" && inspectAsset?.preview_url && (
                 <div className="px-5 py-4 border-b border-[#1E1E1E]">
-                  <TextureInspectorPanel imageUrl={inspectAsset.preview_url} />
+                  <TextureInspectorPanel
+                    imageUrl={inspectAsset.preview_url}
+                    metadata={assetMeta?.metadata}
+                  />
                 </div>
               )}
 
@@ -1421,16 +1424,107 @@ function normalizeScene(root: THREE.Object3D) {
 
 type TextureChannel = "rgba" | "r" | "g" | "b" | "a";
 
-function TextureInspectorPanel({ imageUrl }: { imageUrl: string }) {
+function TextureInspectorPanel({
+  imageUrl,
+  metadata,
+}: {
+  imageUrl: string;
+  metadata?: Record<string, any>;
+}) {
   const osdContainerRef = useRef<HTMLDivElement | null>(null);
   const channelCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const sourceImageRef = useRef<HTMLImageElement | null>(null);
   const sourceDataRef = useRef<ImageData | null>(null);
   const [channel, setChannel] = useState<TextureChannel>("rgba");
+  const [channelPreviewUrl, setChannelPreviewUrl] = useState("");
   const [pixel, setPixel] = useState<{ x: number; y: number; r: number; g: number; b: number; a: number } | null>(null);
   const [mips, setMips] = useState<Array<{ level: number; width: number; height: number }>>([]);
   const [pixelReadable, setPixelReadable] = useState(true);
   const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
+
+  const metadataSize = useMemo(() => {
+    const toPositiveInt = (v: any) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    };
+    return {
+      width: toPositiveInt(metadata?.width ?? metadata?.resolution_width ?? metadata?.resolution?.width),
+      height: toPositiveInt(metadata?.height ?? metadata?.resolution_height ?? metadata?.resolution?.height),
+    };
+  }, [metadata]);
+
+  const buildMipmaps = useCallback((baseWidth: number, baseHeight: number) => {
+    const levels: Array<{ level: number; width: number; height: number }> = [];
+    let w = Math.max(1, Math.floor(baseWidth));
+    let h = Math.max(1, Math.floor(baseHeight));
+    for (let i = 0; i < 8; i += 1) {
+      levels.push({ level: i, width: w, height: h });
+      if (w <= 1 && h <= 1) break;
+      w = Math.max(1, Math.floor(w / 2));
+      h = Math.max(1, Math.floor(h / 2));
+    }
+    setMips(levels);
+  }, []);
+
+  const renderChannelCanvas = useCallback((mode: TextureChannel) => {
+    const canvas = channelCanvasRef.current;
+    const img = sourceImageRef.current;
+    const source = sourceDataRef.current;
+    if (!canvas || !img || !source) return;
+
+    const maxW = 520;
+    const scale = Math.min(1, maxW / img.naturalWidth);
+    canvas.width = Math.max(1, Math.floor(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.floor(img.naturalHeight * scale));
+
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+
+    if (mode === "rgba") {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      try {
+        setChannelPreviewUrl(canvas.toDataURL("image/png"));
+      } catch {
+        setChannelPreviewUrl("");
+      }
+      return;
+    }
+
+    const out = new ImageData(new Uint8ClampedArray(source.data), source.width, source.height);
+    for (let i = 0; i < out.data.length; i += 4) {
+      const r = out.data[i];
+      const g = out.data[i + 1];
+      const b = out.data[i + 2];
+      const a = out.data[i + 3];
+      if (mode === "r") {
+        out.data[i] = r; out.data[i + 1] = 0; out.data[i + 2] = 0; out.data[i + 3] = 255;
+      } else if (mode === "g") {
+        out.data[i] = 0; out.data[i + 1] = g; out.data[i + 2] = 0; out.data[i + 3] = 255;
+      } else if (mode === "b") {
+        out.data[i] = 0; out.data[i + 1] = 0; out.data[i + 2] = b; out.data[i + 3] = 255;
+      } else if (mode === "a") {
+        out.data[i] = a; out.data[i + 1] = a; out.data[i + 2] = a; out.data[i + 3] = 255;
+      }
+    }
+
+    const tmp = document.createElement("canvas");
+    tmp.width = source.width;
+    tmp.height = source.height;
+    const tctx = tmp.getContext("2d");
+    if (!tctx) return;
+    tctx.putImageData(out, 0, 0);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(tmp, 0, 0, canvas.width, canvas.height);
+    try {
+      setChannelPreviewUrl(canvas.toDataURL("image/png"));
+    } catch {
+      setChannelPreviewUrl("");
+    }
+  }, []);
 
   useEffect(() => {
     if (!osdContainerRef.current) return;
@@ -1466,9 +1560,11 @@ function TextureInspectorPanel({ imageUrl }: { imageUrl: string }) {
   }, [imageUrl]);
 
   useEffect(() => {
+    let active = true;
     const img = new window.Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
+      if (!active) return;
       sourceImageRef.current = img;
       setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
       const temp = document.createElement("canvas");
@@ -1480,81 +1576,49 @@ function TextureInspectorPanel({ imageUrl }: { imageUrl: string }) {
       try {
         sourceDataRef.current = tctx.getImageData(0, 0, temp.width, temp.height);
         setPixelReadable(true);
-        renderChannelCanvas(channel);
+        requestAnimationFrame(() => renderChannelCanvas(channel));
       } catch {
         sourceDataRef.current = null;
         setPixelReadable(false);
+        setChannelPreviewUrl("");
       }
       buildMipmaps(img.naturalWidth, img.naturalHeight);
     };
+    img.onerror = () => {
+      if (!active) return;
+      sourceImageRef.current = null;
+      sourceDataRef.current = null;
+      setPixelReadable(false);
+      setChannelPreviewUrl("");
+      if (metadataSize.width > 0 && metadataSize.height > 0) {
+        setNaturalSize({ width: metadataSize.width, height: metadataSize.height });
+        buildMipmaps(metadataSize.width, metadataSize.height);
+      }
+    };
     img.src = imageUrl;
-  }, [imageUrl]);
+    return () => {
+      active = false;
+    };
+  }, [imageUrl, channel, renderChannelCanvas, buildMipmaps, metadataSize.width, metadataSize.height]);
+
+  useEffect(() => {
+    if (mips.length === 0 && metadataSize.width > 0 && metadataSize.height > 0) {
+      if (naturalSize.width === 0 || naturalSize.height === 0) {
+        setNaturalSize({ width: metadataSize.width, height: metadataSize.height });
+      }
+      buildMipmaps(metadataSize.width, metadataSize.height);
+    }
+  }, [mips.length, metadataSize.width, metadataSize.height, naturalSize.width, naturalSize.height, buildMipmaps]);
 
   useEffect(() => {
     renderChannelCanvas(channel);
-  }, [channel]);
+  }, [channel, renderChannelCanvas]);
 
-  const renderChannelCanvas = useCallback((mode: TextureChannel) => {
-    const canvas = channelCanvasRef.current;
-    const img = sourceImageRef.current;
+  const onPreviewHover = (e: ReactMouseEvent<HTMLImageElement>) => {
     const source = sourceDataRef.current;
-    if (!canvas || !img || !source) return;
-
-    const maxW = 520;
-    const scale = Math.min(1, maxW / img.naturalWidth);
-    canvas.width = Math.max(1, Math.floor(img.naturalWidth * scale));
-    canvas.height = Math.max(1, Math.floor(img.naturalHeight * scale));
-
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return;
-
-    const out = new ImageData(new Uint8ClampedArray(source.data), source.width, source.height);
-    for (let i = 0; i < out.data.length; i += 4) {
-      const r = out.data[i];
-      const g = out.data[i + 1];
-      const b = out.data[i + 2];
-      const a = out.data[i + 3];
-      if (mode === "r") {
-        out.data[i] = r; out.data[i + 1] = 0; out.data[i + 2] = 0; out.data[i + 3] = 255;
-      } else if (mode === "g") {
-        out.data[i] = 0; out.data[i + 1] = g; out.data[i + 2] = 0; out.data[i + 3] = 255;
-      } else if (mode === "b") {
-        out.data[i] = 0; out.data[i + 1] = 0; out.data[i + 2] = b; out.data[i + 3] = 255;
-      } else if (mode === "a") {
-        out.data[i] = a; out.data[i + 1] = a; out.data[i + 2] = a; out.data[i + 3] = 255;
-      }
-    }
-
-    const tmp = document.createElement("canvas");
-    tmp.width = source.width;
-    tmp.height = source.height;
-    const tctx = tmp.getContext("2d");
-    if (!tctx) return;
-    tctx.putImageData(out, 0, 0);
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(tmp, 0, 0, canvas.width, canvas.height);
-  }, []);
-
-  const buildMipmaps = useCallback((baseWidth: number, baseHeight: number) => {
-    const levels: Array<{ level: number; width: number; height: number }> = [];
-    let w = Math.max(1, Math.floor(baseWidth));
-    let h = Math.max(1, Math.floor(baseHeight));
-    for (let i = 0; i < 8; i += 1) {
-      levels.push({ level: i, width: w, height: h });
-      if (w <= 1 && h <= 1) break;
-      w = Math.max(1, Math.floor(w / 2));
-      h = Math.max(1, Math.floor(h / 2));
-    }
-    setMips(levels);
-  }, []);
-
-  const onCanvasHover = (e: ReactMouseEvent<HTMLCanvasElement>) => {
-    const canvas = channelCanvasRef.current;
-    const source = sourceDataRef.current;
-    if (!canvas || !source) return;
-    const rect = canvas.getBoundingClientRect();
+    if (!source) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
     const x = Math.floor(((e.clientX - rect.left) / rect.width) * source.width);
     const y = Math.floor(((e.clientY - rect.top) / rect.height) * source.height);
     const ix = Math.min(source.width - 1, Math.max(0, x));
@@ -1602,11 +1666,17 @@ function TextureInspectorPanel({ imageUrl }: { imageUrl: string }) {
               </button>
             ))}
           </div>
+          <canvas ref={channelCanvasRef} className="hidden" />
           {pixelReadable ? (
-            <canvas
-              ref={channelCanvasRef}
-              onMouseMove={onCanvasHover}
-              className="w-full rounded border border-[#27272A] bg-[#121212] cursor-crosshair"
+            <img
+              src={channelPreviewUrl || imageUrl}
+              alt="channel-preview"
+              onMouseMove={onPreviewHover}
+              className="w-full rounded border border-[#27272A] bg-[#121212] object-contain max-h-56 cursor-crosshair"
+              style={{
+                imageRendering: "pixelated",
+                filter: channelPreviewUrl ? "none" : channelFilter(channel),
+              }}
             />
           ) : (
             <img
