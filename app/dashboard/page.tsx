@@ -484,6 +484,13 @@ export default function DashboardPage() {
     return sameBase.sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
   })();
   const riskSummary = (() => {
+    if (assetMeta?.risk?.score !== undefined && assetMeta?.risk?.label) {
+      const score = Number(assetMeta.risk.score) || 0;
+      const label = String(assetMeta.risk.label || "low").toLowerCase();
+      if (label === "high") return { label: "High Risk", score, cls: "bg-rose-500/10 text-rose-400 ring-rose-500/20" };
+      if (label === "medium") return { label: "Medium Risk", score, cls: "bg-amber-500/10 text-amber-400 ring-amber-500/20" };
+      return { label: "Low Risk", score, cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
+    }
     const v = assetMeta?.violations || [];
     if (!Array.isArray(v) || v.length === 0) {
       return { label: "Low Risk", score: 12, cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
