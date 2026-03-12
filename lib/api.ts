@@ -202,6 +202,54 @@ export async function fetchAssetVersions(token: string, assetId: string) {
   return data.versions || [];
 }
 
+export async function fetchAssetAnnotations(token: string, assetId: string) {
+  const res = await fetch(`${API}/api/assets/${assetId}/annotations`, { headers: headers(token) });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.annotations || [];
+}
+
+export async function createAssetAnnotation(
+  token: string,
+  assetId: string,
+  payload: { x: number; y: number; text: string; version_asset_id?: string }
+) {
+  const res = await fetch(`${API}/api/assets/${assetId}/annotations`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data.annotation;
+}
+
+export async function updateAssetAnnotation(
+  token: string,
+  assetId: string,
+  annotationId: string,
+  payload: { x?: number; y?: number; text?: string; resolved?: boolean }
+) {
+  const res = await fetch(`${API}/api/assets/${assetId}/annotations/${annotationId}`, {
+    method: "PATCH",
+    headers: headers(token),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data.annotation;
+}
+
+export async function deleteAssetAnnotation(token: string, assetId: string, annotationId: string) {
+  const res = await fetch(`${API}/api/assets/${assetId}/annotations/${annotationId}`, {
+    method: "DELETE",
+    headers: headers(token),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return { success: true };
+}
+
 export async function fetchSessionContext(token: string) {
   const res = await fetch(`${API}/api/unity/studio`, { headers: headers(token) });
   if (!res.ok) return null;

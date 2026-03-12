@@ -418,6 +418,7 @@ export default function DashboardPage() {
     MODEL_PREVIEWABLE_FORMATS.has(inspectFormat) &&
     Boolean(inspectAsset?.preview_url);
   const isLead = (sessionUser?.role || "").toLowerCase() === "lead";
+  const canManageAnnotations = isLead || (sessionUser?.role || "") === "Technical_Art";
   const memberName = (sessionUser?.name || "").trim();
   const memberAssets = (() => {
     if (!libraryAssets?.length) return [];
@@ -1540,7 +1541,9 @@ export default function DashboardPage() {
                     <ImageAnnotationPanel
                       assetId={inspectAsset.id}
                       imageUrl={inspectAsset.preview_url}
-                      canCreate={isLead}
+                      token={token}
+                      canCreate={canManageAnnotations}
+                      canModerate={canManageAnnotations}
                     />
                   </div>
                 </div>
@@ -1727,8 +1730,10 @@ type ImageAnnotation = {
   x: number; // 0..1
   y: number; // 0..1
   text: string;
-  createdAt: string;
+  created_at: string;
   resolved: boolean;
+  author_name?: string;
+  resolved_by_name?: string;
 };
 
 function VersionComparePanel({
@@ -1881,36 +1886,38 @@ function VersionComparePanel({
 function ImageAnnotationPanel({
   assetId,
   imageUrl,
+  token,
   canCreate,
+  canModerate,
 }: {
   assetId: string;
   imageUrl: string;
+  token: string;
   canCreate: boolean;
+  canModerate: boolean;
 }) {
-  const storageKey = `asset_annotations_${assetId}`;
   const [annotations, setAnnotations] = useState<ImageAnnotation[]>([]);
   const [mode, setMode] = useState<"view" | "add">("view");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draftText, setDraftText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
+  const load = useCallback(async () => {
+    if (!token || !assetId) return;
+    setLoading(true);
+    const rows = await api.fetchAssetAnnotations(token, assetId);
+    setAnnotations(Array.isArray(rows) ? rows : []);
+    setLoading(false);
+  }, [token, assetId]);
+
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      const parsed = raw ? JSON.parse(raw) : [];
-      setAnnotations(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setAnnotations([]);
-    }
+    load();
     setActiveId(null);
     setDraftText("");
     setMode("view");
-  }, [storageKey]);
-
-  const persist = useCallback((next: ImageAnnotation[]) => {
-    setAnnotations(next);
-    localStorage.setItem(storageKey, JSON.stringify(next));
-  }, [storageKey]);
+  }, [load]);
 
   const onImageClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (mode !== "add" || !canCreate) return;
@@ -1920,30 +1927,32 @@ function ImageAnnotationPanel({
     const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
     const text = draftText.trim();
     if (!text) return;
-    const next: ImageAnnotation[] = [
-      ...annotations,
-      {
-        id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        x,
-        y,
-        text,
-        createdAt: new Date().toISOString(),
-        resolved: false,
-      },
-    ];
-    persist(next);
-    setDraftText("");
-    setMode("view");
+    setSaving(true);
+    api.createAssetAnnotation(token, assetId, { x, y, text }).then((res: any) => {
+      setSaving(false);
+      if (res?.error) return;
+      setDraftText("");
+      setMode("view");
+      load();
+    });
   };
 
   const toggleResolved = (id: string) => {
-    const next = annotations.map((a) => (a.id === id ? { ...a, resolved: !a.resolved } : a));
-    persist(next);
+    const target = annotations.find((a) => a.id === id);
+    if (!target) return;
+    api.updateAssetAnnotation(token, assetId, id, { resolved: !target.resolved }).then((res: any) => {
+      if (res?.error) return;
+      load();
+    });
   };
 
   const removeAnnotation = (id: string) => {
-    persist(annotations.filter((a) => a.id !== id));
-    if (activeId === id) setActiveId(null);
+    if (!canModerate) return;
+    api.deleteAssetAnnotation(token, assetId, id).then((res: any) => {
+      if (res?.error) return;
+      if (activeId === id) setActiveId(null);
+      load();
+    });
   };
 
   return (
@@ -1956,6 +1965,7 @@ function ImageAnnotationPanel({
         {canCreate && (
           <button
             onClick={() => setMode((m) => (m === "add" ? "view" : "add"))}
+            disabled={saving}
             className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide border transition-colors ${
               mode === "add"
                 ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
@@ -1973,6 +1983,7 @@ function ImageAnnotationPanel({
             value={draftText}
             onChange={(e) => setDraftText(e.target.value)}
             placeholder="Pin note (click image to place)"
+            disabled={saving}
             className="w-full h-8 px-2 rounded-md bg-[#121212] border border-[#27272A] text-xs text-[#EDEDED] placeholder:text-[#52525B] focus:border-[#3F3F46] focus:outline-none"
           />
         </div>
@@ -2007,7 +2018,9 @@ function ImageAnnotationPanel({
         </div>
 
         <div className="rounded-md border border-[#27272A] bg-[#121212] p-2 max-h-72 overflow-auto">
-          {annotations.length === 0 ? (
+          {loading ? (
+            <p className="text-[11px] text-[#52525B]">Loading annotations…</p>
+          ) : annotations.length === 0 ? (
             <p className="text-[11px] text-[#52525B]">No annotations yet.</p>
           ) : (
             <div className="space-y-2">
@@ -2032,7 +2045,7 @@ function ImageAnnotationPanel({
                       >
                         {a.resolved ? "Reopen" : "Resolve"}
                       </button>
-                      {canCreate && (
+                      {canModerate && (
                         <button
                           onClick={() => removeAnnotation(a.id)}
                           className="px-1.5 py-0.5 rounded text-[9px] border border-rose-500/30 text-rose-400 hover:bg-rose-500/10"
@@ -2043,7 +2056,7 @@ function ImageAnnotationPanel({
                     </div>
                   </div>
                   <p className="text-[11px] text-[#EDEDED] leading-relaxed">{a.text}</p>
-                  <p className="text-[10px] text-[#52525B] mt-1">{timeAgo(a.createdAt)}</p>
+                  <p className="text-[10px] text-[#52525B] mt-1">{timeAgo(a.created_at)}</p>
                 </div>
               ))}
             </div>
