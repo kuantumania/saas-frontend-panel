@@ -44,6 +44,19 @@ function formatSize(kb?: number) {
   return kb < 1024 ? `${kb} KB` : `${(kb / 1024).toFixed(1)} MB`;
 }
 
+function formatTechValue(value: any, key?: string) {
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "number") {
+    if (String(key || "").includes("vram")) {
+      if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+      if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+      return `${value} B`;
+    }
+    return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  }
+  return String(value ?? "—");
+}
+
 function ageHours(d?: string) {
   if (!d) return 0;
   return Math.max(0, (Date.now() - new Date(d).getTime()) / 3600000);
@@ -217,6 +230,7 @@ export default function DashboardPage() {
   const [assetVersions, setAssetVersions] = useState<any[]>([]);
   const [assetQaGuidance, setAssetQaGuidance] = useState<any>(null);
   const [qaGuideLoading, setQaGuideLoading] = useState(false);
+  const [qaProfile, setQaProfile] = useState<"mobile" | "pc" | "console">("pc");
   const [metaLoading, setMetaLoading] = useState(false);
 
   // ── UI State ──
@@ -622,21 +636,37 @@ export default function DashboardPage() {
     setInspectAsset(asset);
     setImageInspectorTab("inspect");
     setReviewHistoryFilter("all");
+    setQaProfile("pc");
     setMetaLoading(true);
     setQaGuideLoading(true);
-    const [metaData, versions, history, guidance] = await Promise.all([
+    setAssetQaGuidance(null);
+    const [metaData, versions, history] = await Promise.all([
       api.fetchAssetMetadata(token, asset.id),
       api.fetchAssetVersions(token, asset.id),
       api.fetchAssetReviewHistory(token, asset.id),
-      api.fetchAssetQaGuidance(token, asset.id),
     ]);
     setAssetMeta(metaData);
     setAssetVersions(Array.isArray(versions) ? versions : []);
     setReviewHistory(Array.isArray(history) ? history : []);
-    setAssetQaGuidance(guidance);
     setMetaLoading(false);
-    setQaGuideLoading(false);
   };
+
+  useEffect(() => {
+    if (!token || !inspectAsset?.id) return;
+    let alive = true;
+    setQaGuideLoading(true);
+    api.fetchAssetQaGuidance(token, inspectAsset.id, qaProfile)
+      .then((data) => {
+        if (!alive) return;
+        setAssetQaGuidance(data);
+      })
+      .finally(() => {
+        if (alive) setQaGuideLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token, inspectAsset?.id, qaProfile]);
 
   if (!token) return null;
   const inspectKind = inspectAsset ? inferAssetKind(inspectAsset, assetMeta?.metadata) : "other";
@@ -2234,7 +2264,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); }}
+            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); setQaProfile("pc"); }}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -2249,7 +2279,7 @@ export default function DashboardPage() {
                   <Cpu className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
                   <span className="text-sm font-semibold text-[#EDEDED]">Asset Inspector</span>
                 </div>
-                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
+                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); setQaProfile("pc"); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
                   <X className="w-4 h-4" strokeWidth={1.5} />
                 </button>
               </div>
@@ -2384,6 +2414,21 @@ export default function DashboardPage() {
                             <Zap className="w-3.5 h-3.5 text-[#3B82F6]" strokeWidth={1.5} />
                             <span className="text-[10px] font-semibold tracking-wider uppercase text-[#71717A]">Tech Art AI v1</span>
                           </div>
+                          <div className="flex items-center gap-1">
+                            {(["mobile", "pc", "console"] as const).map((p) => (
+                              <button
+                                key={`qa-profile-${p}`}
+                                onClick={() => setQaProfile(p)}
+                                className={`px-2 py-0.5 rounded text-[10px] uppercase tracking-wide transition-colors ${
+                                  qaProfile === p
+                                    ? "bg-white/[0.1] text-[#EDEDED]"
+                                    : "text-[#52525B] hover:text-[#A1A1AA] hover:bg-white/[0.03]"
+                                }`}
+                              >
+                                {p}
+                              </button>
+                            ))}
+                          </div>
                           {assetQaGuidance?.guidance?.recommended_decision && (
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ring-1 ${
                               assetQaGuidance.guidance.recommended_decision === "block_fix_first"
@@ -2437,6 +2482,43 @@ export default function DashboardPage() {
                                     <p className="text-[11px] text-[#A1A1AA]">{step.title}</p>
                                   </div>
                                 ))}
+                              </div>
+                            )}
+
+                            {assetQaGuidance?.deep_analysis && (
+                              <div className="mt-2 rounded-md bg-white/[0.02] p-2.5 ring-1 ring-white/[0.06]">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-[10px] uppercase tracking-wider text-[#71717A]">
+                                    Profile {String(assetQaGuidance.deep_analysis.profile || qaProfile).toUpperCase()}
+                                  </span>
+                                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                                    assetQaGuidance.deep_analysis.import_risk_band === "high"
+                                      ? "bg-rose-500/10 text-rose-300"
+                                      : assetQaGuidance.deep_analysis.import_risk_band === "medium"
+                                      ? "bg-amber-500/10 text-amber-300"
+                                      : "bg-emerald-500/10 text-emerald-300"
+                                  }`}>
+                                    Import Risk {assetQaGuidance.deep_analysis.import_risk_score}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 mb-2 text-[10px] text-[#71717A]">
+                                  <span>Pass {assetQaGuidance.deep_analysis.health?.pass ?? 0}</span>
+                                  <span>•</span>
+                                  <span>Fail {assetQaGuidance.deep_analysis.health?.fail ?? 0}</span>
+                                </div>
+                                {Array.isArray(assetQaGuidance.deep_analysis.checks) && assetQaGuidance.deep_analysis.checks.length > 0 && (
+                                  <div className="space-y-1">
+                                    {assetQaGuidance.deep_analysis.checks.slice(0, 6).map((c: any, idx: number) => (
+                                      <div key={`deep-check-${c.key || idx}`} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 text-[10px]">
+                                        <span className="text-[#A1A1AA] truncate">{c.label}</span>
+                                        <span className="text-[#71717A] font-mono">actual {formatTechValue(c.actual, c.key)}</span>
+                                        <span className={`font-medium ${c.status === "pass" ? "text-emerald-300" : "text-rose-300"}`}>
+                                          {c.status === "pass" ? "PASS" : "FAIL"} / {formatTechValue(c.limit, c.key)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </>

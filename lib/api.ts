@@ -127,8 +127,12 @@ export async function fetchAssetReviewHistory(token: string, assetId: string) {
   return data.events || [];
 }
 
-export async function fetchAssetQaGuidance(token: string, assetId: string) {
-  const res = await fetch(`${API}/api/assets/${assetId}/qa-guidance`, { headers: headers(token) });
+export async function fetchAssetQaGuidance(
+  token: string,
+  assetId: string,
+  profile: "mobile" | "pc" | "console" = "pc"
+) {
+  const res = await fetch(`${API}/api/assets/${assetId}/qa-guidance?profile=${profile}`, { headers: headers(token) });
   if (!res.ok) return null;
   return res.json();
 }
