@@ -383,6 +383,13 @@ export async function rollbackVersion(token: string, assetId: string, versionAss
   return data;
 }
 
+export async function fetchUnityActiveAssets(token: string) {
+  const res = await fetch(`${API}/api/unity/assets/active`, { headers: headers(token) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}`, assets: [] };
+  return data;
+}
+
 export async function fetchAssetAnnotations(token: string, assetId: string) {
   const res = await fetch(`${API}/api/assets/${assetId}/annotations`, { headers: headers(token) });
   if (!res.ok) return [];

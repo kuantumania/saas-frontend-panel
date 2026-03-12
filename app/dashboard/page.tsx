@@ -252,6 +252,9 @@ export default function DashboardPage() {
   const [qaTaskLoading, setQaTaskLoading] = useState(false);
   const [updatingQaTaskId, setUpdatingQaTaskId] = useState<string | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
+  const [unityActiveAssets, setUnityActiveAssets] = useState<any[]>([]);
+  const [unityActiveLoading, setUnityActiveLoading] = useState(false);
+  const [unityActiveError, setUnityActiveError] = useState<string | null>(null);
 
   // ── UI State ──
   const [loading, setLoading] = useState(true);
@@ -361,10 +364,11 @@ export default function DashboardPage() {
   const loadAll = useCallback(async () => {
     if (!token) return;
     setLoading(true);
+    setUnityActiveLoading(true);
     try {
       const isLeadRole = (sessionUser?.role || "").toLowerCase() === "lead";
       if (isLeadRole) {
-        const [s, p, q, qp, qi, l, m, a, n, b, r, fld] = await Promise.all([
+        const [s, p, q, qp, qi, l, m, a, n, b, r, fld, unityActive] = await Promise.all([
           api.fetchStats(token),
           api.fetchPendingReview(token),
           api.fetchReviewQueue(token),
@@ -377,6 +381,7 @@ export default function DashboardPage() {
           api.fetchBilling(token),
           api.fetchRules(token),
           api.fetchFolders(token),
+          api.fetchUnityActiveAssets(token),
         ]);
         setStats(s);
         setPendingAssets(p);
@@ -404,11 +409,19 @@ export default function DashboardPage() {
         setBilling(b);
         setRules(r);
         setFolders(fld);
+        if ((unityActive as any)?.error) {
+          setUnityActiveAssets([]);
+          setUnityActiveError((unityActive as any).error || "Unity sync unavailable");
+        } else {
+          setUnityActiveAssets((unityActive as any)?.assets || []);
+          setUnityActiveError(null);
+        }
       } else {
-        const [l, a, n] = await Promise.all([
+        const [l, a, n, unityActive] = await Promise.all([
           api.fetchLibrary(token, { page: 1, status: "all" }),
           api.fetchActivity(token),
           api.fetchNotifications(token),
+          api.fetchUnityActiveAssets(token),
         ]);
         const assets = l.assets || [];
         setLibraryAssets(assets);
@@ -416,6 +429,13 @@ export default function DashboardPage() {
         setActivities(a || []);
         setNotifications(n.notifications || []);
         setUnreadCount(n.unread_count || 0);
+        if ((unityActive as any)?.error) {
+          setUnityActiveAssets([]);
+          setUnityActiveError((unityActive as any).error || "Unity sync unavailable");
+        } else {
+          setUnityActiveAssets((unityActive as any)?.assets || []);
+          setUnityActiveError(null);
+        }
         setPendingAssets([]);
         setReviewQueue([]);
         setQueuePolicy(null);
@@ -435,6 +455,7 @@ export default function DashboardPage() {
     } catch (e) {
       console.error("Dashboard load error:", e);
     }
+    setUnityActiveLoading(false);
     setLoading(false);
   }, [token, sessionUser?.role]);
 
@@ -2381,6 +2402,39 @@ export default function DashboardPage() {
               <div className="flex items-center gap-1.5 text-[10px] text-[#3F3F46]">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 Connected to production
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-[#1E1E1E]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] uppercase tracking-wider text-[#71717A]">Active Sync Preview</span>
+                  <span className="text-[10px] text-[#3F3F46]">{unityActiveAssets.length} active</span>
+                </div>
+                {unityActiveLoading ? (
+                  <div className="space-y-2">
+                    <div className="skeleton h-3 w-full rounded" />
+                    <div className="skeleton h-3 w-5/6 rounded" />
+                    <div className="skeleton h-3 w-4/6 rounded" />
+                  </div>
+                ) : unityActiveError ? (
+                  <p className="text-[10px] text-rose-400">{unityActiveError}</p>
+                ) : unityActiveAssets.length === 0 ? (
+                  <p className="text-[10px] text-[#52525B]">No active assets yet.</p>
+                ) : (
+                  <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                    {unityActiveAssets.slice(0, 6).map((a: any) => (
+                      <div key={a.guid} className="flex items-center justify-between gap-2 rounded-md border border-[#1E1E1E] bg-[#0A0A0A] px-2 py-1.5">
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-[#EDEDED] truncate">{a.name}</p>
+                          <p className="text-[9px] text-[#3F3F46] truncate">{a.category} · {a.fileSize}</p>
+                        </div>
+                        <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+                          Active
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[9px] text-[#3F3F46] mt-2">Unity now pulls only active versions via `/api/unity/assets/active`.</p>
               </div>
             </div>
           </div>
