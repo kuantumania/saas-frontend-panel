@@ -361,6 +361,17 @@ export async function fetchAssetVersions(token: string, assetId: string) {
   return data.versions || [];
 }
 
+export async function setActiveVersion(token: string, assetId: string, versionAssetId: string) {
+  const res = await fetch(`${API}/api/assets/${assetId}/versions/activate`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify({ version_asset_id: versionAssetId }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data;
+}
+
 export async function fetchAssetAnnotations(token: string, assetId: string) {
   const res = await fetch(`${API}/api/assets/${assetId}/annotations`, { headers: headers(token) });
   if (!res.ok) return [];

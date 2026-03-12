@@ -243,6 +243,7 @@ export default function DashboardPage() {
   const [inspectAsset, setInspectAsset] = useState<any>(null);
   const [assetMeta, setAssetMeta] = useState<any>(null);
   const [assetVersions, setAssetVersions] = useState<any[]>([]);
+  const [activatingVersionId, setActivatingVersionId] = useState<string | null>(null);
   const [assetQaGuidance, setAssetQaGuidance] = useState<any>(null);
   const [qaGuideLoading, setQaGuideLoading] = useState(false);
   const [qaProfile, setQaProfile] = useState<"mobile" | "pc" | "console">("pc");
@@ -697,6 +698,43 @@ export default function DashboardPage() {
     await loadLibrary();
   };
 
+  const handleActivateVersion = async (versionId: string) => {
+    if (!token || !inspectAsset?.id) return;
+    setActivatingVersionId(versionId);
+    const res = await api.setActiveVersion(token, inspectAsset.id, versionId);
+    if ((res as any)?.error) {
+      setToast(`Activate failed: ${(res as any).error}`);
+      setActivatingVersionId(null);
+      return;
+    }
+    const versions = await api.fetchAssetVersions(token, inspectAsset.id);
+    setAssetVersions(Array.isArray(versions) ? versions : []);
+    setAssetMeta((prev: any) => {
+      if (!prev?.metadata) return prev;
+      return {
+        ...prev,
+        metadata: {
+          ...prev.metadata,
+          active_version_asset_id: String(versionId),
+          version_state: String(inspectAsset.id) === String(versionId) ? "active" : "inactive",
+        },
+      };
+    });
+    setInspectAsset((prev: any) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        metadata: {
+          ...(prev.metadata || {}),
+          active_version_asset_id: String(versionId),
+          version_state: String(prev.id) === String(versionId) ? "active" : "inactive",
+        },
+      };
+    });
+    setActivatingVersionId(null);
+    setToast("Active version updated");
+  };
+
   const handleUpdateQaTaskStatus = async (task: any, next: "open" | "in_progress" | "done") => {
     if (!token || !inspectAsset?.id || !task?.id) return;
     setUpdatingQaTaskId(task.id);
@@ -883,6 +921,7 @@ export default function DashboardPage() {
   const isLead = (sessionUser?.role || "").toLowerCase() === "lead";
   const canManageAnnotations = isLead || (sessionUser?.role || "") === "Technical_Art";
   const canForceLockIntent = isLead || (sessionUser?.role || "") === "Technical_Art";
+  const canManageVersions = isLead || (sessionUser?.role || "") === "Technical_Art";
   const activeLockIntent = (() => {
     const raw = assetMeta?.metadata?.lock_intent || inspectAsset?.metadata?.lock_intent || null;
     if (!raw || typeof raw !== "object") return null;
@@ -911,6 +950,24 @@ export default function DashboardPage() {
       return libraryAssets.filter((a: any) => (a.uploader_name || "").trim().toLowerCase() === memberName.toLowerCase());
     }
     return libraryAssets;
+  })();
+  const versionsForBase = (() => {
+    if (!inspectAsset) return [];
+    const source = assetVersions.length > 0 ? assetVersions : libraryAssets;
+    const currentBase = normalizeVersionBase(inspectAsset.filename);
+    return (source || []).filter((a: any) => normalizeVersionBase(a?.filename) === currentBase);
+  })();
+  const sortedVersions = [...versionsForBase].sort((a: any, b: any) => {
+    const av = extractVersionNumber(a?.filename);
+    const bv = extractVersionNumber(b?.filename);
+    if (av !== null && bv !== null) return bv - av;
+    return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+  });
+  const activeVersionId = (() => {
+    const fromList = sortedVersions.find((v: any) => v?.metadata?.version_state === "active");
+    if (fromList?.id) return String(fromList.id);
+    const fromMeta = assetMeta?.metadata?.active_version_asset_id || inspectAsset?.metadata?.active_version_asset_id;
+    return fromMeta ? String(fromMeta) : null;
   })();
   const compareAsset = (() => {
     if (!inspectAsset || inspectKind !== "image") return null;
@@ -2753,6 +2810,66 @@ export default function DashboardPage() {
                           </div>
                         )}
                       </div>
+                    </div>
+
+                    {/* Version Core v2 */}
+                    <div className="rounded-xl border border-[#27272A] bg-[#0A0A0A] p-3">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <Layers className="w-3.5 h-3.5 text-[#60A5FA]" strokeWidth={1.5} />
+                          <span className="text-[10px] font-semibold tracking-wider uppercase text-[#71717A]">Version Core</span>
+                        </div>
+                        <span className="text-[10px] text-[#52525B]">{sortedVersions.length} versions</span>
+                      </div>
+
+                      {sortedVersions.length === 0 ? (
+                        <p className="text-[11px] text-[#52525B]">No version history found for this asset.</p>
+                      ) : (
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                          {sortedVersions.map((v: any) => {
+                            const isActive = activeVersionId ? String(v.id) === activeVersionId : false;
+                            const isCurrent = String(v.id) === String(inspectAsset.id);
+                            const versionNum = extractVersionNumber(v.filename);
+                            return (
+                              <div key={v.id} className="flex items-center justify-between gap-3 rounded-lg border border-[#1F1F22] bg-[#0F0F12] px-2.5 py-2">
+                                <div className="min-w-0">
+                                  <p className="text-[11px] text-[#EDEDED] truncate">
+                                    {v.filename}
+                                  </p>
+                                  <p className="text-[10px] text-[#52525B]">
+                                    {versionNum !== null ? `v${versionNum}` : "version"} · {formatSize(v.file_size_kb)} · {timeAgo(v.created_at)}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  {isCurrent && (
+                                    <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-white/[0.06] text-[#A1A1AA]">Current</span>
+                                  )}
+                                  {isActive ? (
+                                    <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">Active</span>
+                                  ) : (
+                                    canManageVersions && (
+                                      <button
+                                        onClick={() => handleActivateVersion(String(v.id))}
+                                        disabled={activatingVersionId === String(v.id)}
+                                        className={`px-2 py-0.5 rounded text-[9px] uppercase tracking-wide transition-colors ring-1 ${
+                                          activatingVersionId === String(v.id)
+                                            ? "bg-white/[0.04] text-[#52525B] ring-white/[0.06] cursor-not-allowed"
+                                            : "bg-blue-500/10 text-blue-200 ring-blue-500/20 hover:bg-blue-500/20"
+                                        }`}
+                                      >
+                                        {activatingVersionId === String(v.id) ? "Setting..." : "Set Active"}
+                                      </button>
+                                    )
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {!canManageVersions && (
+                        <p className="text-[10px] text-[#3F3F46] mt-2">Only Lead/Tech Art can change the active version.</p>
+                      )}
                     </div>
 
                     {/* Tech Art AI v1 */}
