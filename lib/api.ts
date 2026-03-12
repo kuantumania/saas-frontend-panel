@@ -54,6 +54,12 @@ export async function fetchReviewQueueInsights(token: string) {
   return data.insights || null;
 }
 
+export async function fetchReviewQueuePolicy(token: string) {
+  const res = await fetch(`${API}/api/review/queues/policy`, { headers: headers(token) });
+  if (!res.ok) return null;
+  return res.json();
+}
+
 export async function escalateReviewQueue(
   token: string,
   payload: { limit?: number; execute?: boolean; include_at_risk?: boolean; cooldown_hours?: number } = {}

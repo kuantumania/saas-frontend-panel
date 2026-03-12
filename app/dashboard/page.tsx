@@ -41,6 +41,7 @@ function ageHours(d?: string) {
 
 function slaState(d?: string): { label: string; cls: string } {
   const h = ageHours(d);
+  if (h >= 48) return { label: "Critical", cls: "bg-fuchsia-500/10 text-fuchsia-300 ring-fuchsia-500/25" };
   if (h >= 24) return { label: "SLA Breach", cls: "bg-rose-500/10 text-rose-400 ring-rose-500/20" };
   if (h >= 8) return { label: "At Risk", cls: "bg-amber-500/10 text-amber-400 ring-amber-500/20" };
   return { label: "Healthy", cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
@@ -201,9 +202,10 @@ export default function DashboardPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isAutoRouting, setIsAutoRouting] = useState(false);
   const [isEscalatingQueue, setIsEscalatingQueue] = useState(false);
-  const [queueFilter, setQueueFilter] = useState<"all" | "breach" | "at_risk" | "healthy">("all");
+  const [queueFilter, setQueueFilter] = useState<"all" | "critical" | "breach" | "at_risk" | "healthy">("all");
   const [queueQaFilter, setQueueQaFilter] = useState<"all" | "blocked" | "risky" | "ready">("all");
   const [queueInsights, setQueueInsights] = useState<any>(null);
+  const [queuePolicy, setQueuePolicy] = useState<any>(null);
   const [annotationRefreshTick, setAnnotationRefreshTick] = useState(0);
 
   const searchRef = useRef<HTMLInputElement>(null);
@@ -271,10 +273,11 @@ export default function DashboardPage() {
     try {
       const isLeadRole = (sessionUser?.role || "").toLowerCase() === "lead";
       if (isLeadRole) {
-        const [s, p, q, qi, l, m, a, n, b, r, fld] = await Promise.all([
+        const [s, p, q, qp, qi, l, m, a, n, b, r, fld] = await Promise.all([
           api.fetchStats(token),
           api.fetchPendingReview(token),
           api.fetchReviewQueue(token),
+          api.fetchReviewQueuePolicy(token),
           api.fetchReviewQueueInsights(token),
           api.fetchLibrary(token, { page: 1, status: "all" }),
           api.fetchMembers(token),
@@ -287,6 +290,7 @@ export default function DashboardPage() {
         setStats(s);
         setPendingAssets(p);
         setReviewQueue(q || []);
+        setQueuePolicy(qp?.policy || null);
         setQueueInsights(qi || null);
         setLibraryAssets(l.assets || []);
         setLibraryPagination(l.pagination || {});
@@ -311,6 +315,7 @@ export default function DashboardPage() {
         setUnreadCount(n.unread_count || 0);
         setPendingAssets([]);
         setReviewQueue([]);
+        setQueuePolicy(null);
         setQueueInsights(null);
         setMembers([]);
         setBilling(null);
@@ -560,26 +565,32 @@ export default function DashboardPage() {
     if (score >= 35) return { label: "Medium Risk", score, cls: "bg-amber-500/10 text-amber-400 ring-amber-500/20" };
     return { label: "Low Risk", score, cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
   })();
+  const queueScope = (reviewQueue.length ? reviewQueue : pendingAssets) || [];
   const cockpit = (() => {
-    const pending = pendingAssets || [];
-    const overdue = pending.filter((a: any) => ageHours(a.created_at) >= 24).length;
-    const atRisk = pending.filter((a: any) => {
+    const critical = queueScope.filter((a: any) => (a.sla_state || "") === "critical" || ageHours(a.created_at) >= 48).length;
+    const overdue = queueScope.filter((a: any) => {
       const h = ageHours(a.created_at);
-      return h >= 8 && h < 24;
+      const s = a.sla_state || "";
+      return s === "breach" || (h >= 24 && h < 48);
     }).length;
-    const medianH = pending.length
-      ? [...pending]
-          .map((a: any) => ageHours(a.created_at))
-          .sort((a: number, b: number) => a - b)[Math.floor(pending.length / 2)]
+    const atRisk = queueScope.filter((a: any) => {
+      const h = ageHours(a.created_at);
+      const s = a.sla_state || "";
+      return s === "at_risk" || (h >= 8 && h < 24);
+    }).length;
+    const medianH = queueScope.length
+      ? [...queueScope]
+          .map((a: any) => Number(a.age_hours ?? ageHours(a.created_at)))
+          .sort((a: number, b: number) => a - b)[Math.floor(queueScope.length / 2)]
       : 0;
     return {
+      critical,
       overdue,
       atRisk,
-      healthy: Math.max(0, pending.length - overdue - atRisk),
+      healthy: Math.max(0, queueScope.length - critical - overdue - atRisk),
       medianReviewHours: medianH,
     };
   })();
-  const queueScope = (reviewQueue.length ? reviewQueue : pendingAssets) || [];
   const qaGate = (() => {
     const blocked = queueScope.filter((q: any) => qaGateState(q) === "blocked").length;
     const risky = queueScope.filter((q: any) => qaGateState(q) === "risky").length;
@@ -881,7 +892,11 @@ export default function DashboardPage() {
             </div>
             <span className="text-[10px] text-[#71717A]">Approve-to-Unity focus</span>
           </div>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-5 gap-3">
+            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Critical Lane</p>
+              <p className="text-lg font-semibold text-fuchsia-300">{cockpit.critical}</p>
+            </div>
             <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
               <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">SLA Breach</p>
               <p className="text-lg font-semibold text-rose-400">{cockpit.overdue}</p>
@@ -930,6 +945,9 @@ export default function DashboardPage() {
               </p>
             </div>
           </div>
+          <p className="text-[10px] text-[#52525B] mt-2">
+            SLA Policy: At Risk {queuePolicy?.at_risk_hours ?? 8}h · Breach {queuePolicy?.breach_hours ?? 24}h · Critical {queuePolicy?.critical_hours ?? 48}h
+          </p>
         </section>
 
         {/* ── METRICS ROW ────────────────────────── */}
@@ -998,12 +1016,14 @@ export default function DashboardPage() {
                     const isImg = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext || "");
                     const sla = a.sla_state
                       ? {
-                          label: a.sla_state === "breach" ? "SLA Breach" : a.sla_state === "at_risk" ? "At Risk" : "Healthy",
-                          cls: a.sla_state === "breach"
-                            ? "bg-rose-500/10 text-rose-400 ring-rose-500/20"
-                            : a.sla_state === "at_risk"
-                              ? "bg-amber-500/10 text-amber-400 ring-amber-500/20"
-                              : "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
+                          label: a.sla_state === "critical" ? "Critical" : a.sla_state === "breach" ? "SLA Breach" : a.sla_state === "at_risk" ? "At Risk" : "Healthy",
+                          cls: a.sla_state === "critical"
+                            ? "bg-fuchsia-500/10 text-fuchsia-300 ring-fuchsia-500/25"
+                            : a.sla_state === "breach"
+                              ? "bg-rose-500/10 text-rose-400 ring-rose-500/20"
+                              : a.sla_state === "at_risk"
+                                ? "bg-amber-500/10 text-amber-400 ring-amber-500/20"
+                                : "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
                         }
                       : slaState(a.created_at);
                     return (
@@ -1139,7 +1159,7 @@ export default function DashboardPage() {
               >
                 {isEscalatingQueue ? "Escalating..." : "Run Escalation"}
               </button>
-              {(["all", "breach", "at_risk", "healthy"] as const).map((f) => (
+              {(["all", "critical", "breach", "at_risk", "healthy"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setQueueFilter(f)}
@@ -1149,7 +1169,7 @@ export default function DashboardPage() {
                       : "text-[#52525B] hover:text-[#A1A1AA] hover:bg-white/[0.03]"
                   }`}
                 >
-                  {f === "all" ? "All" : f === "at_risk" ? "At Risk" : f}
+                  {f === "all" ? "All" : f === "at_risk" ? "At Risk" : f === "critical" ? "Critical" : f}
                 </button>
               ))}
               <div className="w-px h-4 bg-[#27272A]" />
@@ -1182,12 +1202,14 @@ export default function DashboardPage() {
               .map((q: any) => {
                 const sla = q.sla_state
                   ? {
-                      label: q.sla_state === "breach" ? "Breach" : q.sla_state === "at_risk" ? "At Risk" : "Healthy",
-                      cls: q.sla_state === "breach"
-                        ? "bg-rose-500/10 text-rose-400 ring-rose-500/20"
-                        : q.sla_state === "at_risk"
-                          ? "bg-amber-500/10 text-amber-400 ring-amber-500/20"
-                          : "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
+                      label: q.sla_state === "critical" ? "Critical" : q.sla_state === "breach" ? "Breach" : q.sla_state === "at_risk" ? "At Risk" : "Healthy",
+                      cls: q.sla_state === "critical"
+                        ? "bg-fuchsia-500/10 text-fuchsia-300 ring-fuchsia-500/25"
+                        : q.sla_state === "breach"
+                          ? "bg-rose-500/10 text-rose-400 ring-rose-500/20"
+                          : q.sla_state === "at_risk"
+                            ? "bg-amber-500/10 text-amber-400 ring-amber-500/20"
+                            : "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
                     }
                   : slaState(q.created_at);
                 const qa = qaGateBadge(qaGateState(q));
