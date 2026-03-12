@@ -13,7 +13,7 @@ import {
   Activity, ChevronRight, Copy, Eye, EyeOff, Gamepad2,
   CreditCard, ExternalLink, Layers, ArrowUpRight,
   FileText, Image, Box, Volume2, Folder, Shield,
-  AlertTriangle, Trash2, Plus, Info, Cpu, Zap, Play, Pause, Repeat, MapPin,
+  AlertTriangle, Trash2, Plus, Info, Cpu, Zap, Play, Pause, Repeat, MapPin, Lock, Unlock,
 } from "lucide-react";
 import * as api from "@/lib/api";
 
@@ -286,6 +286,8 @@ export default function DashboardPage() {
   const [assignDueAt, setAssignDueAt] = useState("");
   const [assignNote, setAssignNote] = useState("");
   const [savingAssignment, setSavingAssignment] = useState(false);
+  const [lockIntentNote, setLockIntentNote] = useState("");
+  const [savingLockIntent, setSavingLockIntent] = useState(false);
   const [queueFilter, setQueueFilter] = useState<"all" | "critical" | "breach" | "at_risk" | "healthy">("all");
   const [queueQaFilter, setQueueQaFilter] = useState<"all" | "blocked" | "risky" | "ready">("all");
   const [queueInsights, setQueueInsights] = useState<any>(null);
@@ -323,6 +325,7 @@ export default function DashboardPage() {
       setSessionUser((prev: any) => {
         const merged = {
           ...(prev || {}),
+          id: ctx.user_id || prev?.id || "",
           name: ctx.user_name || prev?.name || "",
           role: ctx.user_role || prev?.role || "",
           workspace: ctx.workspace || prev?.workspace || "",
@@ -591,6 +594,60 @@ export default function DashboardPage() {
     setToast("Tech task added to annotations");
   };
 
+  const applyLockIntentToLocalState = (lockIntent: any) => {
+    setAssetMeta((prev: any) => {
+      if (!prev?.metadata) return prev;
+      return {
+        ...prev,
+        metadata: {
+          ...prev.metadata,
+          lock_intent: lockIntent,
+        },
+      };
+    });
+    setInspectAsset((prev: any) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        metadata: {
+          ...(prev.metadata || {}),
+          lock_intent: lockIntent,
+        },
+      };
+    });
+  };
+
+  const handleAcquireLockIntent = async (force = false) => {
+    if (!token || !inspectAsset?.id) return;
+    setSavingLockIntent(true);
+    const res = await api.setAssetLockIntent(token, inspectAsset.id, {
+      note: lockIntentNote,
+      force,
+    });
+    setSavingLockIntent(false);
+    if ((res as any)?.error) {
+      setToast(`Lock failed: ${(res as any).error}`);
+      return;
+    }
+    applyLockIntentToLocalState((res as any).lock_intent || { locked: true });
+    setToast(force ? "Lock force-takeover applied" : "Lock intent acquired");
+    await loadLibrary();
+  };
+
+  const handleReleaseLockIntent = async (force = false) => {
+    if (!token || !inspectAsset?.id) return;
+    setSavingLockIntent(true);
+    const res = await api.releaseAssetLockIntent(token, inspectAsset.id, { force });
+    setSavingLockIntent(false);
+    if ((res as any)?.error) {
+      setToast(`Unlock failed: ${(res as any).error}`);
+      return;
+    }
+    applyLockIntentToLocalState((res as any).lock_intent || { locked: false });
+    setToast(force ? "Force unlock applied" : "Lock released");
+    await loadLibrary();
+  };
+
   const handleUpdateQaTaskStatus = async (task: any, next: "open" | "in_progress" | "done") => {
     if (!token || !inspectAsset?.id || !task?.id) return;
     setUpdatingQaTaskId(task.id);
@@ -699,6 +756,7 @@ export default function DashboardPage() {
     setImageInspectorTab("inspect");
     setReviewHistoryFilter("all");
     setQaProfile("pc");
+    setLockIntentNote(String(asset?.metadata?.lock_intent?.note || ""));
     setMetaLoading(true);
     setQaGuideLoading(true);
     setAssetQaGuidance(null);
@@ -775,6 +833,24 @@ export default function DashboardPage() {
     Boolean(inspectAsset?.preview_url);
   const isLead = (sessionUser?.role || "").toLowerCase() === "lead";
   const canManageAnnotations = isLead || (sessionUser?.role || "") === "Technical_Art";
+  const canForceLockIntent = isLead || (sessionUser?.role || "") === "Technical_Art";
+  const activeLockIntent = (() => {
+    const raw = assetMeta?.metadata?.lock_intent || inspectAsset?.metadata?.lock_intent || null;
+    if (!raw || typeof raw !== "object") return null;
+    return raw;
+  })();
+  const currentUserId = String(sessionUser?.id || "");
+  const currentUserName = String(sessionUser?.name || "");
+  const isLockHeld = Boolean(activeLockIntent?.locked);
+  const lockOwnerId = String(activeLockIntent?.user_id || "");
+  const lockOwnerName = String(activeLockIntent?.user_name || "");
+  const lockHeldByCurrentUser = Boolean(
+    isLockHeld && (
+      (currentUserId && lockOwnerId && currentUserId === lockOwnerId) ||
+      (!currentUserId && currentUserName && lockOwnerName && currentUserName === lockOwnerName)
+    )
+  );
+  const lockHeldByOther = Boolean(isLockHeld && !lockHeldByCurrentUser);
   const memberName = (sessionUser?.name || "").trim();
   const memberAssets = (() => {
     if (!libraryAssets?.length) return [];
@@ -876,7 +952,7 @@ export default function DashboardPage() {
   const filteredReviewHistory = reviewHistory.filter((ev: any) => {
     const a = String(ev?.action || "");
     if (reviewHistoryFilter === "all") return true;
-    if (reviewHistoryFilter === "ownership") return a === "review_assignment_set";
+    if (reviewHistoryFilter === "ownership") return a === "review_assignment_set" || a === "asset_lock_intent_set" || a === "asset_lock_intent_released";
     if (reviewHistoryFilter === "escalation") return a === "queue_escalation" || a === "queue_owner_escalation";
     if (reviewHistoryFilter === "routing") return a === "auto_route_review";
     if (reviewHistoryFilter === "decision") return a === "approve_asset" || a === "reject_asset" || a === "submit_review";
@@ -1673,6 +1749,8 @@ export default function DashboardPage() {
                 {libraryAssets.map((a: any) => {
                   const ext = (a.filename || "").split(".").pop()?.toLowerCase();
                   const isImg = ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext || "");
+                  const rowLock = a?.metadata?.lock_intent;
+                  const rowLocked = Boolean(rowLock?.locked);
                   return (
                     <div
                       key={a.id}
@@ -1688,6 +1766,12 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex items-center min-w-0">
                         <p className="text-sm font-medium text-[#EDEDED] truncate">{a.filename}</p>
+                        {rowLocked && (
+                          <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20">
+                            <Lock className="w-2.5 h-2.5" strokeWidth={1.8} />
+                            {rowLock?.user_name ? `Locked by ${rowLock.user_name}` : "Locked"}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center">
                         <span className="text-xs text-[#52525B] truncate">{a.uploader_name || "—"}</span>
@@ -2358,7 +2442,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); setQaProfile("pc"); setQaTasks([]); setQaTaskLoading(false); setUpdatingQaTaskId(null); }}
+            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); setQaProfile("pc"); setQaTasks([]); setQaTaskLoading(false); setUpdatingQaTaskId(null); setLockIntentNote(""); setSavingLockIntent(false); }}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -2373,7 +2457,7 @@ export default function DashboardPage() {
                   <Cpu className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
                   <span className="text-sm font-semibold text-[#EDEDED]">Asset Inspector</span>
                 </div>
-                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); setQaProfile("pc"); setQaTasks([]); setQaTaskLoading(false); setUpdatingQaTaskId(null); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
+                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); setQaProfile("pc"); setQaTasks([]); setQaTaskLoading(false); setUpdatingQaTaskId(null); setLockIntentNote(""); setSavingLockIntent(false); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
                   <X className="w-4 h-4" strokeWidth={1.5} />
                 </button>
               </div>
@@ -2498,6 +2582,97 @@ export default function DashboardPage() {
                           {assetMeta.metadata.format}
                         </span>
                       )}
+                    </div>
+
+                    {/* Git-for-Artists Core: Lock Intent */}
+                    <div className="rounded-xl border border-[#27272A] bg-[#0A0A0A] p-3">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-1.5">
+                          {isLockHeld ? (
+                            <Lock className="w-3.5 h-3.5 text-amber-300" strokeWidth={1.5} />
+                          ) : (
+                            <Unlock className="w-3.5 h-3.5 text-emerald-300" strokeWidth={1.5} />
+                          )}
+                          <span className="text-[10px] font-semibold tracking-wider uppercase text-[#71717A]">Lock Intent</span>
+                        </div>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ring-1 ${
+                          isLockHeld
+                            ? "bg-amber-500/10 text-amber-300 ring-amber-500/20"
+                            : "bg-emerald-500/10 text-emerald-300 ring-emerald-500/20"
+                        }`}>
+                          {isLockHeld ? "Locked" : "Available"}
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-[#71717A]">
+                        {isLockHeld
+                          ? `Owner: ${lockOwnerName || "unknown"}${activeLockIntent?.locked_at ? ` · ${timeAgo(activeLockIntent.locked_at)}` : ""}`
+                          : "No active lock. Claim intent before major changes to avoid collisions."}
+                      </p>
+
+                      <div className="mt-2 flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={lockIntentNote}
+                          onChange={(e) => setLockIntentNote(e.target.value)}
+                          placeholder="Lock note (optional): e.g. updating UV + naming"
+                          className="flex-1 h-8 px-2 rounded bg-[#121212] border border-[#27272A] text-[11px] text-[#EDEDED] placeholder:text-[#3F3F46] focus:border-[#3F3F46] focus:outline-none"
+                        />
+                        {!isLockHeld ? (
+                          <button
+                            onClick={() => handleAcquireLockIntent(false)}
+                            disabled={savingLockIntent}
+                            className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide transition-colors ${
+                              savingLockIntent
+                                ? "bg-white/[0.04] text-[#52525B] cursor-not-allowed"
+                                : "bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20 hover:bg-emerald-500/20"
+                            }`}
+                          >
+                            Claim
+                          </button>
+                        ) : lockHeldByCurrentUser ? (
+                          <button
+                            onClick={() => handleReleaseLockIntent(false)}
+                            disabled={savingLockIntent}
+                            className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide transition-colors ${
+                              savingLockIntent
+                                ? "bg-white/[0.04] text-[#52525B] cursor-not-allowed"
+                                : "bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20 hover:bg-amber-500/20"
+                            }`}
+                          >
+                            Release
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            {canForceLockIntent && (
+                              <>
+                                <button
+                                  onClick={() => handleAcquireLockIntent(true)}
+                                  disabled={savingLockIntent}
+                                  className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide transition-colors ${
+                                    savingLockIntent
+                                      ? "bg-white/[0.04] text-[#52525B] cursor-not-allowed"
+                                      : "bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/20 hover:bg-rose-500/20"
+                                  }`}
+                                >
+                                  Force Claim
+                                </button>
+                                <button
+                                  onClick={() => handleReleaseLockIntent(true)}
+                                  disabled={savingLockIntent}
+                                  className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide transition-colors ${
+                                    savingLockIntent
+                                      ? "bg-white/[0.04] text-[#52525B] cursor-not-allowed"
+                                      : "bg-zinc-500/10 text-zinc-300 ring-1 ring-zinc-500/20 hover:bg-zinc-500/20"
+                                  }`}
+                                >
+                                  Force Unlock
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* Tech Art AI v1 */}
@@ -3728,6 +3903,8 @@ function activityIcon(action: string) {
     case "upload": return <Upload className={cls} strokeWidth={1.5} />;
     case "submit_review": return <ArrowUpRight className={cls} strokeWidth={1.5} />;
     case "review_assignment_set": return <UserPlus className={cls} strokeWidth={1.5} />;
+    case "asset_lock_intent_set": return <Lock className={cls + " !text-amber-300"} strokeWidth={1.7} />;
+    case "asset_lock_intent_released": return <Unlock className={cls + " !text-emerald-300"} strokeWidth={1.7} />;
     case "auto_route_review": return <Zap className={cls + " !text-fuchsia-300"} strokeWidth={1.7} />;
     case "queue_escalation": return <AlertTriangle className={cls + " !text-rose-400"} strokeWidth={1.7} />;
     case "queue_owner_escalation": return <AlertTriangle className={cls + " !text-rose-400"} strokeWidth={1.7} />;
@@ -3755,6 +3932,8 @@ function activityVerb(action: string) {
     case "invite": return "invited a member";
     case "join": return "joined the team";
     case "review_assignment_set": return "assigned review owner on";
+    case "asset_lock_intent_set": return "set lock intent on";
+    case "asset_lock_intent_released": return "released lock intent on";
     case "queue_escalation": return "escalated";
     case "queue_owner_escalation": return "owner-escalated";
     case "auto_route_review": return "auto-routed";
@@ -3765,7 +3944,7 @@ function activityVerb(action: string) {
 
 function reviewActionBadge(action: string) {
   const a = String(action || "");
-  if (a === "review_assignment_set" || a === "review_owner_reassigned") {
+  if (a === "review_assignment_set" || a === "review_owner_reassigned" || a === "asset_lock_intent_set" || a === "asset_lock_intent_released") {
     return { label: "Ownership", cls: "bg-blue-500/10 text-blue-300 ring-blue-500/20" };
   }
   if (a === "queue_escalation" || a === "queue_owner_escalation") {

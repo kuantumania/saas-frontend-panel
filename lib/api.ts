@@ -120,6 +120,36 @@ export async function upsertReviewAssignment(
   return data;
 }
 
+export async function setAssetLockIntent(
+  token: string,
+  assetId: string,
+  payload: { note?: string; force?: boolean } = {}
+) {
+  const res = await fetch(`${API}/api/assets/${assetId}/lock-intent`, {
+    method: "PUT",
+    headers: headers(token),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}`, details: data?.details };
+  return data;
+}
+
+export async function releaseAssetLockIntent(
+  token: string,
+  assetId: string,
+  payload: { force?: boolean } = {}
+) {
+  const res = await fetch(`${API}/api/assets/${assetId}/lock-intent/release`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}`, details: data?.details };
+  return data;
+}
+
 export async function fetchAssetReviewHistory(token: string, assetId: string) {
   const res = await fetch(`${API}/api/assets/${assetId}/review-history`, { headers: headers(token) });
   if (!res.ok) return [];
