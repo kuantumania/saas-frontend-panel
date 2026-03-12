@@ -459,16 +459,65 @@ export default function DashboardPage() {
   useEffect(() => { loadLibrary(); }, [loadLibrary]);
 
   // ── Actions ──
-  const handleApprove = async (id: string) => {
+  const isAssetLockedByOther = (asset: any) => {
+    const lock = asset?.metadata?.lock_intent;
+    if (!lock || !lock.locked) return { blocked: false };
+    const lockOwnerId = String(lock.user_id || "");
+    const lockOwnerName = String(lock.user_name || "");
+    if (currentUserId && lockOwnerId && currentUserId === lockOwnerId) return { blocked: false };
+    if (!currentUserId && currentUserName && lockOwnerName && currentUserName === lockOwnerName) return { blocked: false };
+    return { blocked: true, owner: lockOwnerName || "another user" };
+  };
+
+  const handleApprove = async (asset: any) => {
     if (!token) return;
-    const ok = await api.approveAsset(token, id);
-    if (ok) { setToast("Asset approved"); loadAll(); }
+    const lockInfo = isAssetLockedByOther(asset);
+    let force = false;
+    if (lockInfo.blocked) {
+      if (canForceLockIntent) {
+        const ok = window.confirm(`Asset locked by ${lockInfo.owner}. Force approve?`);
+        if (!ok) return;
+        force = true;
+      } else {
+        setToast(`Locked by ${lockInfo.owner}. Ask owner or lead to unlock.`);
+        return;
+      }
+    }
+    const res = await api.approveAsset(token, asset.id, { force });
+    if ((res as any)?.error) {
+      setToast(`Approve failed: ${(res as any).error}`);
+      return;
+    }
+    setToast("Asset approved");
+    loadAll();
   };
 
   const handleReject = async () => {
     if (!token || !rejectingId) return;
-    const ok = await api.rejectAsset(token, rejectingId, rejectReason);
-    if (ok) { setToast("Asset rejected"); setRejectingId(null); setRejectReason(""); loadAll(); }
+    const target = (reviewQueue.find((a: any) => String(a.id) === String(rejectingId))
+      || pendingAssets.find((a: any) => String(a.id) === String(rejectingId))
+      || libraryAssets.find((a: any) => String(a.id) === String(rejectingId)));
+    const lockInfo = target ? isAssetLockedByOther(target) : { blocked: false };
+    let force = false;
+    if (lockInfo.blocked) {
+      if (canForceLockIntent) {
+        const ok = window.confirm(`Asset locked by ${lockInfo.owner}. Force reject?`);
+        if (!ok) return;
+        force = true;
+      } else {
+        setToast(`Locked by ${lockInfo.owner}. Ask owner or lead to unlock.`);
+        return;
+      }
+    }
+    const res = await api.rejectAsset(token, rejectingId, rejectReason, { force });
+    if ((res as any)?.error) {
+      setToast(`Reject failed: ${(res as any).error}`);
+      return;
+    }
+    setToast("Asset rejected");
+    setRejectingId(null);
+    setRejectReason("");
+    loadAll();
   };
 
   const handleAutoRoute = async () => {
@@ -982,6 +1031,11 @@ export default function DashboardPage() {
 
   const handleMemberSubmitReview = async (asset: any) => {
     if (!token || !asset?.s3_key) return;
+    const lockInfo = isAssetLockedByOther(asset);
+    if (lockInfo.blocked) {
+      setToast(`Locked by ${lockInfo.owner}. Ask owner or lead to unlock.`);
+      return;
+    }
     const res = await api.submitAssetForReview(token, asset.s3_key);
     if ((res as any)?.error) {
       setToast(`Submit failed: ${(res as any).error}`);
@@ -1367,6 +1421,8 @@ export default function DashboardPage() {
                   {(reviewQueue.length ? reviewQueue : pendingAssets).slice(0, 6).map((a: any) => {
                     const ext = (a.filename || "").split(".").pop()?.toLowerCase();
                     const isImg = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext || "");
+                    const lockInfo = isAssetLockedByOther(a);
+                    const lockBlocked = lockInfo.blocked && !canForceLockIntent;
                     const sla = a.sla_state
                       ? {
                           label: a.sla_state === "critical" ? "Critical" : a.sla_state === "breach" ? "SLA Breach" : a.sla_state === "at_risk" ? "At Risk" : "Healthy",
@@ -1415,16 +1471,26 @@ export default function DashboardPage() {
                         {/* Actions — ghost buttons */}
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
-                            onClick={() => handleApprove(a.id)}
-                            className="p-1.5 rounded-md hover:bg-emerald-500/10 text-[#52525B] hover:text-emerald-400 transition-colors"
-                            title="Approve"
+                            onClick={() => handleApprove(a)}
+                            disabled={lockBlocked}
+                            className={`p-1.5 rounded-md transition-colors ${
+                              lockBlocked
+                                ? "text-[#3F3F46] cursor-not-allowed"
+                                : "hover:bg-emerald-500/10 text-[#52525B] hover:text-emerald-400"
+                            }`}
+                            title={lockBlocked ? `Locked by ${lockInfo.owner}` : "Approve"}
                           >
                             <Check className="w-4 h-4" strokeWidth={2} />
                           </button>
                           <button
                             onClick={() => { setRejectingId(a.id); setRejectReason(""); }}
-                            className="p-1.5 rounded-md hover:bg-rose-500/10 text-[#52525B] hover:text-rose-400 transition-colors"
-                            title="Reject"
+                            disabled={lockBlocked}
+                            className={`p-1.5 rounded-md transition-colors ${
+                              lockBlocked
+                                ? "text-[#3F3F46] cursor-not-allowed"
+                                : "hover:bg-rose-500/10 text-[#52525B] hover:text-rose-400"
+                            }`}
+                            title={lockBlocked ? `Locked by ${lockInfo.owner}` : "Reject"}
                           >
                             <X className="w-4 h-4" strokeWidth={2} />
                           </button>
@@ -1621,6 +1687,8 @@ export default function DashboardPage() {
             {filteredQueue
               .slice(0, 12)
               .map((q: any) => {
+                const lockInfo = isAssetLockedByOther(q);
+                const lockBlocked = lockInfo.blocked && !canForceLockIntent;
                 const sla = q.sla_state
                   ? {
                       label: q.sla_state === "critical" ? "Critical" : q.sla_state === "breach" ? "Breach" : q.sla_state === "at_risk" ? "At Risk" : "Healthy",
@@ -1665,14 +1733,26 @@ export default function DashboardPage() {
                         Assign
                       </button>
                       <button
-                        onClick={() => handleApprove(q.id)}
-                        className="px-2.5 py-1 rounded text-[10px] bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
+                        onClick={() => handleApprove(q)}
+                        disabled={lockBlocked}
+                        title={lockBlocked ? `Locked by ${lockInfo.owner}` : "Approve"}
+                        className={`px-2.5 py-1 rounded text-[10px] ring-1 transition-colors ${
+                          lockBlocked
+                            ? "bg-[#18181B] text-[#3F3F46] ring-[#27272A] cursor-not-allowed"
+                            : "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20 hover:bg-emerald-500/20"
+                        }`}
                       >
                         Approve
                       </button>
                       <button
                         onClick={() => { setRejectingId(q.id); setRejectReason(""); }}
-                        className="px-2.5 py-1 rounded text-[10px] bg-rose-500/10 text-rose-400 ring-1 ring-rose-500/20 hover:bg-rose-500/20 transition-colors"
+                        disabled={lockBlocked}
+                        title={lockBlocked ? `Locked by ${lockInfo.owner}` : "Reject"}
+                        className={`px-2.5 py-1 rounded text-[10px] ring-1 transition-colors ${
+                          lockBlocked
+                            ? "bg-[#18181B] text-[#3F3F46] ring-[#27272A] cursor-not-allowed"
+                            : "bg-rose-500/10 text-rose-400 ring-rose-500/20 hover:bg-rose-500/20"
+                        }`}
                       >
                         Reject
                       </button>

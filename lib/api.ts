@@ -229,21 +229,26 @@ export async function fetchBilling(token: string) {
   return res.json();
 }
 
-export async function approveAsset(token: string, assetId: string) {
+export async function approveAsset(token: string, assetId: string, payload: { force?: boolean } = {}) {
   const res = await fetch(`${API}/api/assets/${assetId}/approve`, {
     method: "POST",
     headers: headers(token),
+    body: JSON.stringify(payload),
   });
-  return res.ok;
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}`, details: data?.details };
+  return data;
 }
 
-export async function rejectAsset(token: string, assetId: string, reason: string) {
+export async function rejectAsset(token: string, assetId: string, reason: string, payload: { force?: boolean } = {}) {
   const res = await fetch(`${API}/api/assets/${assetId}/reject`, {
     method: "POST",
     headers: headers(token),
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({ reason, ...payload }),
   });
-  return res.ok;
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}`, details: data?.details };
+  return data;
 }
 
 export async function inviteMember(token: string, role: string) {
