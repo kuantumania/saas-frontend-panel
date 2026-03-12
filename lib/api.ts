@@ -194,3 +194,44 @@ export async function fetchAssetMetadata(token: string, assetId: string) {
   if (!res.ok) return null;
   return res.json();
 }
+
+export async function fetchSessionContext(token: string) {
+  const res = await fetch(`${API}/api/unity/studio`, { headers: headers(token) });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function uploadAsset(
+  token: string,
+  file: File,
+  opts: { role: string; userCode: string; workspace: string; folderId?: string; forceUpload?: boolean }
+) {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("category", opts.role || "General");
+  form.append("user_code", opts.userCode || "Unknown");
+  form.append("workspace", opts.workspace || "default-studio");
+  if (opts.folderId) form.append("folder_id", opts.folderId);
+  if (opts.forceUpload) form.append("force_upload", "true");
+
+  const res = await fetch(`${API}/api/upload`, {
+    method: "POST",
+    headers: { "x-api-key": token },
+    body: form,
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}`, code: data?.code, violations: data?.violations };
+  return data;
+}
+
+export async function submitAssetForReview(token: string, s3Key: string) {
+  const res = await fetch(`${API}/api/assets/submit-by-key`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify({ s3_key: s3Key }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data;
+}

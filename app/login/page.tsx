@@ -35,6 +35,7 @@ export default function LoginPage() {
       if (res.ok && data.session_token) {
         localStorage.setItem("lead_session_token", data.session_token);
         localStorage.setItem("lead_studio", JSON.stringify(data.studio || {}));
+        localStorage.setItem("session_user", JSON.stringify({ role: "lead", name: data?.studio?.name || "Lead" }));
         window.location.href = "/dashboard";
       } else {
         setError(data.error || "Invalid credentials");
@@ -66,6 +67,7 @@ export default function LoginPage() {
       if (verifyData.status === "claimed") {
         localStorage.setItem("lead_session_token", verifyData.session_token);
         localStorage.setItem("lead_studio", JSON.stringify({ slug: verifyData.workspace }));
+        localStorage.setItem("session_user", JSON.stringify(verifyData.user || { role: "member" }));
         window.location.href = "/dashboard";
         return;
       }
@@ -86,6 +88,7 @@ export default function LoginPage() {
       if (claimRes.ok && claimData.session_token) {
         localStorage.setItem("lead_session_token", claimData.session_token);
         localStorage.setItem("lead_studio", JSON.stringify({ slug: verifyData.workspace }));
+        localStorage.setItem("session_user", JSON.stringify(claimData.user || { role: "member", name: name.trim() }));
         window.location.href = "/dashboard";
       } else {
         setError(claimData.error || "PIN claim failed");

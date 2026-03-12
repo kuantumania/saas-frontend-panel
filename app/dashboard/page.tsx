@@ -108,6 +108,7 @@ export default function DashboardPage() {
   // ── Auth ──
   const [token, setToken] = useState<string | null>(null);
   const [studio, setStudio] = useState<{ name?: string; slug?: string }>({});
+  const [sessionUser, setSessionUser] = useState<any>(null);
 
   // ── Data ──
   const [stats, setStats] = useState({ totalMembers: 0, totalAssets: 0, pendingReview: 0, approved: 0 });
@@ -145,22 +146,54 @@ export default function DashboardPage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [showInviteMenu, setShowInviteMenu] = useState(false);
+  const [isDraggingUpload, setIsDraggingUpload] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const searchTimeout = useRef<NodeJS.Timeout | undefined>(undefined);
   const inviteMenuRef = useRef<HTMLDivElement>(null);
+  const memberUploadInputRef = useRef<HTMLInputElement>(null);
 
   // ── Init ──
   useEffect(() => {
     const t = localStorage.getItem("lead_session_token");
     const s = JSON.parse(localStorage.getItem("lead_studio") || "{}");
+    const u = JSON.parse(localStorage.getItem("session_user") || "null");
     if (!t) {
       window.location.href = "/login";
       return;
     }
     setToken(t);
     setStudio(s);
+    setSessionUser(u);
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    (async () => {
+      const ctx = await api.fetchSessionContext(token);
+      if (!active || !ctx?.success) return;
+      setSessionUser((prev: any) => {
+        const merged = {
+          ...(prev || {}),
+          name: ctx.user_name || prev?.name || "",
+          role: ctx.user_role || prev?.role || "",
+          workspace: ctx.workspace || prev?.workspace || "",
+        };
+        localStorage.setItem("session_user", JSON.stringify(merged));
+        return merged;
+      });
+      setStudio((prev: any) => ({
+        ...prev,
+        slug: prev?.slug || ctx.workspace || "",
+        name: prev?.name || ctx.studio_name || "Studio",
+      }));
+    })();
+    return () => {
+      active = false;
+    };
+  }, [token]);
 
   // ── Keyboard shortcut ⌘K ──
   useEffect(() => {
@@ -179,33 +212,59 @@ export default function DashboardPage() {
     if (!token) return;
     setLoading(true);
     try {
-      const [s, p, l, m, a, n, b, r, fld] = await Promise.all([
-        api.fetchStats(token),
-        api.fetchPendingReview(token),
-        api.fetchLibrary(token, { page: 1, status: "all" }),
-        api.fetchMembers(token),
-        api.fetchActivity(token),
-        api.fetchNotifications(token),
-        api.fetchBilling(token),
-        api.fetchRules(token),
-        api.fetchFolders(token),
-      ]);
-      setStats(s);
-      setPendingAssets(p);
-      setLibraryAssets(l.assets || []);
-      setLibraryPagination(l.pagination || {});
-      setMembers(m);
-      setActivities(a);
-      setNotifications(n.notifications || []);
-      setUnreadCount(n.unread_count || 0);
-      setBilling(b);
-      setRules(r);
-      setFolders(fld);
+      const isLeadRole = (sessionUser?.role || "").toLowerCase() === "lead";
+      if (isLeadRole) {
+        const [s, p, l, m, a, n, b, r, fld] = await Promise.all([
+          api.fetchStats(token),
+          api.fetchPendingReview(token),
+          api.fetchLibrary(token, { page: 1, status: "all" }),
+          api.fetchMembers(token),
+          api.fetchActivity(token),
+          api.fetchNotifications(token),
+          api.fetchBilling(token),
+          api.fetchRules(token),
+          api.fetchFolders(token),
+        ]);
+        setStats(s);
+        setPendingAssets(p);
+        setLibraryAssets(l.assets || []);
+        setLibraryPagination(l.pagination || {});
+        setMembers(m);
+        setActivities(a);
+        setNotifications(n.notifications || []);
+        setUnreadCount(n.unread_count || 0);
+        setBilling(b);
+        setRules(r);
+        setFolders(fld);
+      } else {
+        const [l, a, n] = await Promise.all([
+          api.fetchLibrary(token, { page: 1, status: "all" }),
+          api.fetchActivity(token),
+          api.fetchNotifications(token),
+        ]);
+        const assets = l.assets || [];
+        setLibraryAssets(assets);
+        setLibraryPagination(l.pagination || {});
+        setActivities(a || []);
+        setNotifications(n.notifications || []);
+        setUnreadCount(n.unread_count || 0);
+        setPendingAssets([]);
+        setMembers([]);
+        setBilling(null);
+        setRules([]);
+        setFolders([]);
+        setStats({
+          totalMembers: 0,
+          totalAssets: l.pagination?.total || assets.length || 0,
+          pendingReview: assets.filter((x: any) => x.status === "in_review").length,
+          approved: assets.filter((x: any) => x.status === "approved").length,
+        });
+      }
     } catch (e) {
       console.error("Dashboard load error:", e);
     }
     setLoading(false);
-  }, [token]);
+  }, [token, sessionUser?.role]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
@@ -274,6 +333,7 @@ export default function DashboardPage() {
   const logout = () => {
     localStorage.removeItem("lead_session_token");
     localStorage.removeItem("lead_studio");
+    localStorage.removeItem("session_user");
     window.location.href = "/login";
   };
 
@@ -339,6 +399,51 @@ export default function DashboardPage() {
     inspectKind === "3d" &&
     MODEL_PREVIEWABLE_FORMATS.has(inspectFormat) &&
     Boolean(inspectAsset?.preview_url);
+  const isLead = (sessionUser?.role || "").toLowerCase() === "lead";
+  const memberName = (sessionUser?.name || "").trim();
+  const memberAssets = useMemo(() => {
+    if (!libraryAssets?.length) return [];
+    if (isLead) return libraryAssets;
+    if (sessionUser?.id) {
+      return libraryAssets.filter((a: any) => String(a.uploader_id || "") === String(sessionUser.id));
+    }
+    if (memberName) {
+      return libraryAssets.filter((a: any) => (a.uploader_name || "").trim().toLowerCase() === memberName.toLowerCase());
+    }
+    return libraryAssets;
+  }, [libraryAssets, isLead, sessionUser?.id, memberName]);
+
+  const handleMemberUploadFile = async (file: File) => {
+    if (!token || !file) return;
+    if (!studio.slug) {
+      setToast("Studio context missing. Please log in again.");
+      return;
+    }
+    setIsUploading(true);
+    const result = await api.uploadAsset(token, file, {
+      role: sessionUser?.role || "General",
+      userCode: memberName || "Member",
+      workspace: studio.slug,
+    });
+    setIsUploading(false);
+    if ((result as any)?.error) {
+      setToast(`Upload failed: ${(result as any).error}`);
+      return;
+    }
+    setToast(`Uploaded: ${file.name}`);
+    await loadLibrary();
+  };
+
+  const handleMemberSubmitReview = async (asset: any) => {
+    if (!token || !asset?.s3_key) return;
+    const res = await api.submitAssetForReview(token, asset.s3_key);
+    if ((res as any)?.error) {
+      setToast(`Submit failed: ${(res as any).error}`);
+      return;
+    }
+    setToast("Sent to review");
+    await loadLibrary();
+  };
 
   // ═══════════════════════════════════════════════════
   // RENDER
@@ -449,6 +554,130 @@ export default function DashboardPage() {
 
       {/* ── MAIN CONTENT ─────────────────────────── */}
       <main className="max-w-6xl mx-auto px-6 py-8">
+        {!isLead ? (
+          <>
+            <section className="grid grid-cols-3 gap-6 mb-10">
+              <div className="col-span-2 rounded-xl border border-[#1E1E1E] bg-[#121212] p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <Upload className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
+                  <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Upload Workspace</h2>
+                </div>
+                <p className="text-xs text-[#52525B] mb-4">
+                  Drag & drop your file, then send it to review in one click.
+                </p>
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDraggingUpload(true);
+                  }}
+                  onDragLeave={() => setIsDraggingUpload(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDraggingUpload(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) handleMemberUploadFile(file);
+                  }}
+                  className={`rounded-lg border border-dashed p-8 text-center transition-colors ${
+                    isDraggingUpload
+                      ? "border-[#3B82F6] bg-[#3B82F6]/10"
+                      : "border-[#27272A] bg-[#0A0A0A]"
+                  }`}
+                >
+                  <Upload className="w-6 h-6 text-[#52525B] mx-auto mb-2" strokeWidth={1.5} />
+                  <p className="text-sm text-[#A1A1AA]">Drop file here or</p>
+                  <button
+                    onClick={() => memberUploadInputRef.current?.click()}
+                    disabled={isUploading}
+                    className="mt-3 px-3 py-1.5 rounded-md text-xs font-medium bg-[#3B82F6]/15 text-[#60A5FA] ring-1 ring-[#3B82F6]/30 hover:bg-[#3B82F6]/25 transition-colors disabled:opacity-50"
+                  >
+                    {isUploading ? "Uploading..." : "Choose File"}
+                  </button>
+                  <input
+                    ref={memberUploadInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleMemberUploadFile(file);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="col-span-1 rounded-xl border border-[#1E1E1E] bg-[#121212] p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <Info className="w-4 h-4 text-[#71717A]" strokeWidth={1.5} />
+                  <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Session</h2>
+                </div>
+                <div className="space-y-2 text-xs">
+                  <p className="text-[#71717A]">Name: <span className="text-[#EDEDED]">{memberName || "Member"}</span></p>
+                  <p className="text-[#71717A]">Role: <span className="text-[#EDEDED]">{(sessionUser?.role || "member").replace(/_/g, " ")}</span></p>
+                  <p className="text-[#71717A]">Studio: <span className="text-[#EDEDED]">{studio.slug || sessionUser?.workspace || "—"}</span></p>
+                </div>
+              </div>
+            </section>
+
+            <section className="mb-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Folder className="w-4 h-4 text-[#71717A]" strokeWidth={1.5} />
+                  <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">My Uploads</h2>
+                  <span className="text-xs text-[#52525B]">{memberAssets.length}</span>
+                </div>
+              </div>
+              <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] overflow-hidden">
+                <div className="grid grid-cols-[40px_1fr_80px_90px_120px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] text-[10px] font-semibold tracking-[0.1em] uppercase text-[#3F3F46]">
+                  <span />
+                  <span>Name</span>
+                  <span>Size</span>
+                  <span>Status</span>
+                  <span>Action</span>
+                </div>
+                {memberAssets.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-14 text-center">
+                    <Package className="w-8 h-8 text-[#27272A] mb-3" strokeWidth={1} />
+                    <p className="text-sm font-medium text-[#52525B]">No uploads yet</p>
+                    <p className="text-xs text-[#3F3F46] mt-1">Upload your first asset from the panel above</p>
+                  </div>
+                ) : (
+                  memberAssets.map((a: any) => {
+                    const ext = (a.filename || "").split(".").pop()?.toLowerCase();
+                    const isImg = ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext || "");
+                    return (
+                      <div key={a.id} className="grid grid-cols-[40px_1fr_80px_90px_120px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] last:border-0 hover:bg-white/[0.02] transition-colors items-center">
+                        <div className="w-10 h-10 rounded-md bg-[#18181B] border border-[#27272A] overflow-hidden flex items-center justify-center">
+                          {isImg && a.preview_url ? (
+                            <img src={a.preview_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-[#3F3F46]">{fileIcon(a.file_type)}</span>
+                          )}
+                        </div>
+                        <button onClick={() => openInspector(a)} className="text-left min-w-0">
+                          <p className="text-sm font-medium text-[#EDEDED] truncate">{a.filename}</p>
+                          <p className="text-[10px] text-[#52525B]">{a.created_at ? timeAgo(a.created_at) : ""}</p>
+                        </button>
+                        <span className="text-xs text-[#71717A] font-mono">{formatSize(a.file_size_kb)}</span>
+                        <StatusBadge status={a.status} />
+                        {a.status === "staging" ? (
+                          <button
+                            onClick={() => handleMemberSubmitReview(a)}
+                            className="justify-self-start px-2.5 py-1 rounded-md text-[10px] font-medium bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20 hover:bg-amber-500/20 transition-colors"
+                          >
+                            Submit Review
+                          </button>
+                        ) : (
+                          <span className="text-[10px] text-[#52525B]">{a.status === "in_review" ? "Waiting lead" : "—"}</span>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          </>
+        ) : (
+          <>
 
         {/* ── METRICS ROW ────────────────────────── */}
         <section className="grid grid-cols-4 gap-4 mb-10 stagger">
@@ -1123,6 +1352,8 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
+          </>
+        )}
 
       </main>
 
