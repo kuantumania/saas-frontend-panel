@@ -50,6 +50,19 @@ function getFilenameExtension(name?: string) {
   return name.split(".").pop()?.toLowerCase() || "";
 }
 
+function normalizeVersionBase(name?: string) {
+  const n = String(name || "").toLowerCase();
+  return n.replace(/_v\d+(\.[^.]+)$/i, "$1");
+}
+
+function extractVersionNumber(name?: string): number | null {
+  const n = String(name || "");
+  const m = n.match(/_v(\d+)\.[^.]+$/i);
+  if (!m) return null;
+  const v = Number(m[1]);
+  return Number.isFinite(v) ? v : null;
+}
+
 function inferAssetKind(asset: any, metadata?: any): "3d" | "image" | "audio" | "other" {
   const mime = String(asset?.file_type || "").toLowerCase();
   const ext = getFilenameExtension(asset?.filename);
@@ -411,6 +424,35 @@ export default function DashboardPage() {
       return libraryAssets.filter((a: any) => (a.uploader_name || "").trim().toLowerCase() === memberName.toLowerCase());
     }
     return libraryAssets;
+  })();
+  const compareAsset = (() => {
+    if (!inspectAsset || inspectKind !== "image") return null;
+    const currentBase = normalizeVersionBase(inspectAsset.filename);
+    const currentVersion = extractVersionNumber(inspectAsset.filename);
+    const sameBase = (libraryAssets || []).filter((a: any) =>
+      a?.id !== inspectAsset.id &&
+      a?.preview_url &&
+      normalizeVersionBase(a?.filename) === currentBase
+    );
+    if (sameBase.length === 0) return null;
+
+    if (currentVersion !== null) {
+      const lower = sameBase
+        .filter((a: any) => {
+          const v = extractVersionNumber(a.filename);
+          return v !== null && v < currentVersion;
+        })
+        .sort((a: any, b: any) => (extractVersionNumber(b.filename) || 0) - (extractVersionNumber(a.filename) || 0));
+      if (lower.length > 0) return lower[0];
+    }
+
+    const currentTime = new Date(inspectAsset.created_at || 0).getTime();
+    const older = sameBase
+      .filter((a: any) => new Date(a.created_at || 0).getTime() < currentTime)
+      .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    if (older.length > 0) return older[0];
+
+    return sameBase.sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
   })();
 
   const handleMemberUploadFile = async (file: File) => {
@@ -1474,6 +1516,20 @@ export default function DashboardPage() {
                     imageUrl={inspectAsset.preview_url}
                     metadata={assetMeta?.metadata}
                   />
+                  {compareAsset?.preview_url ? (
+                    <div className="mt-3">
+                      <VersionComparePanel
+                        beforeUrl={compareAsset.preview_url}
+                        afterUrl={inspectAsset.preview_url}
+                        beforeLabel={compareAsset.filename || "Previous"}
+                        afterLabel={inspectAsset.filename || "Current"}
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-[#52525B] mt-3">
+                      Version Compare: previous version not found in current asset page.
+                    </p>
+                  )}
                   <div className="mt-3">
                     <ImageAnnotationPanel
                       assetId={inspectAsset.id}
@@ -1668,6 +1724,58 @@ type ImageAnnotation = {
   createdAt: string;
   resolved: boolean;
 };
+
+function VersionComparePanel({
+  beforeUrl,
+  afterUrl,
+  beforeLabel,
+  afterLabel,
+}: {
+  beforeUrl: string;
+  afterUrl: string;
+  beforeLabel: string;
+  afterLabel: string;
+}) {
+  const [split, setSplit] = useState(50);
+  return (
+    <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[11px] font-semibold text-[#A1A1AA]">Version Compare (MVP)</p>
+        <p className="text-[10px] text-[#52525B]">{split}%</p>
+      </div>
+      <div className="relative h-64 rounded-md border border-[#27272A] bg-[#121212] overflow-hidden">
+        <img src={beforeUrl} alt="before" className="absolute inset-0 w-full h-full object-contain" />
+        <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${split}%` }}>
+          <img src={afterUrl} alt="after" className="absolute inset-0 w-full h-full object-contain" />
+        </div>
+        <div className="absolute inset-y-0 w-px bg-white/70" style={{ left: `${split}%` }} />
+        <div
+          className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/60 text-[9px] text-[#EDEDED] border border-white/10"
+          title={beforeLabel}
+        >
+          Before
+        </div>
+        <div
+          className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[9px] text-[#EDEDED] border border-white/10"
+          title={afterLabel}
+        >
+          After
+        </div>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={split}
+        onChange={(e) => setSplit(Number(e.target.value))}
+        className="w-full mt-2 accent-[#3B82F6]"
+      />
+      <p className="text-[10px] text-[#52525B] mt-1 truncate">
+        {beforeLabel} → {afterLabel}
+      </p>
+    </div>
+  );
+}
 
 function ImageAnnotationPanel({
   assetId,
