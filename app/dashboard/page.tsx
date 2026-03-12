@@ -200,8 +200,10 @@ export default function DashboardPage() {
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isAutoRouting, setIsAutoRouting] = useState(false);
+  const [isEscalatingQueue, setIsEscalatingQueue] = useState(false);
   const [queueFilter, setQueueFilter] = useState<"all" | "breach" | "at_risk" | "healthy">("all");
   const [queueQaFilter, setQueueQaFilter] = useState<"all" | "blocked" | "risky" | "ready">("all");
+  const [queueInsights, setQueueInsights] = useState<any>(null);
   const [annotationRefreshTick, setAnnotationRefreshTick] = useState(0);
 
   const searchRef = useRef<HTMLInputElement>(null);
@@ -269,10 +271,11 @@ export default function DashboardPage() {
     try {
       const isLeadRole = (sessionUser?.role || "").toLowerCase() === "lead";
       if (isLeadRole) {
-        const [s, p, q, l, m, a, n, b, r, fld] = await Promise.all([
+        const [s, p, q, qi, l, m, a, n, b, r, fld] = await Promise.all([
           api.fetchStats(token),
           api.fetchPendingReview(token),
           api.fetchReviewQueue(token),
+          api.fetchReviewQueueInsights(token),
           api.fetchLibrary(token, { page: 1, status: "all" }),
           api.fetchMembers(token),
           api.fetchActivity(token),
@@ -284,6 +287,7 @@ export default function DashboardPage() {
         setStats(s);
         setPendingAssets(p);
         setReviewQueue(q || []);
+        setQueueInsights(qi || null);
         setLibraryAssets(l.assets || []);
         setLibraryPagination(l.pagination || {});
         setMembers(m);
@@ -307,6 +311,7 @@ export default function DashboardPage() {
         setUnreadCount(n.unread_count || 0);
         setPendingAssets([]);
         setReviewQueue([]);
+        setQueueInsights(null);
         setMembers([]);
         setBilling(null);
         setRules([]);
@@ -368,6 +373,24 @@ export default function DashboardPage() {
       return;
     }
     setToast(`Auto-routed ${res.routed_count}/${res.targeted} items`);
+    await loadAll();
+  };
+
+  const handleRunEscalation = async () => {
+    if (!token) return;
+    setIsEscalatingQueue(true);
+    const res = await api.escalateReviewQueue(token, {
+      execute: true,
+      include_at_risk: true,
+      cooldown_hours: 6,
+      limit: 10,
+    });
+    setIsEscalatingQueue(false);
+    if ((res as any)?.error) {
+      setToast(`Escalation failed: ${(res as any).error}`);
+      return;
+    }
+    setToast(`Escalated ${res.escalated_count}/${res.matched} items`);
     await loadAll();
   };
 
@@ -890,6 +913,23 @@ export default function DashboardPage() {
               <p className="text-lg font-semibold text-emerald-400">{qaGate.ready}</p>
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Escalation Needed</p>
+              <p className="text-lg font-semibold text-rose-400">{queueInsights?.escalation_needed ?? queueScope.filter((q: any) => q.escalation_needed).length}</p>
+            </div>
+            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Top Bottleneck</p>
+              <p className="text-sm font-semibold text-[#EDEDED] truncate">
+                {queueInsights?.bottlenecks?.[0]?.bucket || "—"}
+              </p>
+              <p className="text-[10px] text-[#71717A] mt-1">
+                {queueInsights?.bottlenecks?.[0]
+                  ? `${queueInsights.bottlenecks[0].count} items · ${queueInsights.bottlenecks[0].breach} breach`
+                  : "No bottleneck data"}
+              </p>
+            </div>
+          </div>
         </section>
 
         {/* ── METRICS ROW ────────────────────────── */}
@@ -1087,6 +1127,17 @@ export default function DashboardPage() {
                 }`}
               >
                 {isAutoRouting ? "Routing..." : "Auto Route"}
+              </button>
+              <button
+                onClick={handleRunEscalation}
+                disabled={isEscalatingQueue || reviewQueue.length === 0}
+                className={`px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wide transition-colors ${
+                  isEscalatingQueue || reviewQueue.length === 0
+                    ? "bg-white/[0.04] text-[#52525B] cursor-not-allowed"
+                    : "bg-rose-500/12 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/20"
+                }`}
+              >
+                {isEscalatingQueue ? "Escalating..." : "Run Escalation"}
               </button>
               {(["all", "breach", "at_risk", "healthy"] as const).map((f) => (
                 <button

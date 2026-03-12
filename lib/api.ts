@@ -47,6 +47,27 @@ export async function autoRouteReviewQueue(
   return data;
 }
 
+export async function fetchReviewQueueInsights(token: string) {
+  const res = await fetch(`${API}/api/review/queues/insights`, { headers: headers(token) });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.insights || null;
+}
+
+export async function escalateReviewQueue(
+  token: string,
+  payload: { limit?: number; execute?: boolean; include_at_risk?: boolean; cooldown_hours?: number } = {}
+) {
+  const res = await fetch(`${API}/api/review/queues/escalate`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data;
+}
+
 export async function scoreAssetRisk(
   token: string,
   payload: { asset_id?: string; folder_id?: string; filename?: string; file_size_kb?: number; metadata?: Record<string, any> }
