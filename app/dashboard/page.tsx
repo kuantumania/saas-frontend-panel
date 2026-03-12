@@ -67,10 +67,6 @@ function qaGateBadge(state: "blocked" | "risky" | "ready") {
   return { label: "Ready", cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
 }
 
-function clamp01(n: number) {
-  return Math.max(0, Math.min(1, n));
-}
-
 function fileIcon(type?: string) {
   if (!type) return <FileText className="w-4 h-4" strokeWidth={1.5} />;
   if (type.includes("image")) return <Image className="w-4 h-4" strokeWidth={1.5} />;
@@ -207,6 +203,7 @@ export default function DashboardPage() {
   const [queueQaFilter, setQueueQaFilter] = useState<"all" | "blocked" | "risky" | "ready">("all");
   const [queueInsights, setQueueInsights] = useState<any>(null);
   const [queuePolicy, setQueuePolicy] = useState<any>(null);
+  const [imageInspectorTab, setImageInspectorTab] = useState<"inspect" | "compare" | "annotate">("inspect");
   const [annotationRefreshTick, setAnnotationRefreshTick] = useState(0);
 
   const searchRef = useRef<HTMLInputElement>(null);
@@ -482,6 +479,7 @@ export default function DashboardPage() {
   const openInspector = async (asset: any) => {
     if (!token) return;
     setInspectAsset(asset);
+    setImageInspectorTab("inspect");
     setMetaLoading(true);
     const [metaData, versions] = await Promise.all([
       api.fetchAssetMetadata(token, asset.id),
@@ -634,22 +632,6 @@ export default function DashboardPage() {
     }
     setToast("Sent to review");
     await loadLibrary();
-  };
-
-  const handleCreateAnnotationFromCompare = async (payload: { x: number; y: number; text: string }) => {
-    if (!token || !inspectAsset?.id) return;
-    const created = await api.createAssetAnnotation(token, inspectAsset.id, {
-      x: clamp01(payload.x),
-      y: clamp01(payload.y),
-      text: payload.text,
-      version_asset_id: compareAsset?.id,
-    });
-    if ((created as any)?.error) {
-      setToast(`Annotation failed: ${(created as any).error}`);
-      return;
-    }
-    setAnnotationRefreshTick((v) => v + 1);
-    setToast("Annotation created from compare");
   };
 
   // ═══════════════════════════════════════════════════
@@ -1872,7 +1854,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); }}
+            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setImageInspectorTab("inspect"); }}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -1887,7 +1869,7 @@ export default function DashboardPage() {
                   <Cpu className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
                   <span className="text-sm font-semibold text-[#EDEDED]">Asset Inspector</span>
                 </div>
-                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
+                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setImageInspectorTab("inspect"); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
                   <X className="w-4 h-4" strokeWidth={1.5} />
                 </button>
               </div>
@@ -1934,27 +1916,45 @@ export default function DashboardPage() {
 
               {inspectKind === "image" && inspectAsset?.preview_url && (
                 <div className="px-5 py-4 border-b border-[#1E1E1E]">
-                  <TextureInspectorPanel
-                    imageUrl={inspectAsset.preview_url}
-                    metadata={assetMeta?.metadata}
-                  />
-                  {compareAsset?.preview_url ? (
-                    <div className="mt-3">
+                  <div className="flex items-center gap-1 mb-3">
+                    {(["inspect", "compare", "annotate"] as const).map((tab) => (
+                      <button
+                        key={tab}
+                        onClick={() => setImageInspectorTab(tab)}
+                        className={`px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wide transition-colors ${
+                          imageInspectorTab === tab
+                            ? "bg-white/[0.08] text-[#EDEDED]"
+                            : "text-[#52525B] hover:text-[#A1A1AA] hover:bg-white/[0.03]"
+                        }`}
+                      >
+                        {tab}
+                      </button>
+                    ))}
+                  </div>
+
+                  {imageInspectorTab === "inspect" && (
+                    <TextureInspectorPanel
+                      imageUrl={inspectAsset.preview_url}
+                      metadata={assetMeta?.metadata}
+                    />
+                  )}
+
+                  {imageInspectorTab === "compare" && (
+                    compareAsset?.preview_url ? (
                       <VersionComparePanel
                         beforeUrl={compareAsset.preview_url}
                         afterUrl={inspectAsset.preview_url}
                         beforeLabel={compareAsset.filename || "Previous"}
                         afterLabel={inspectAsset.filename || "Current"}
-                        canCreateAnnotation={canManageAnnotations}
-                        onCreateAnnotation={handleCreateAnnotationFromCompare}
                       />
-                    </div>
-                  ) : (
-                    <p className="text-[10px] text-[#52525B] mt-3">
-                      Version Compare: previous version not found in current asset page.
-                    </p>
+                    ) : (
+                      <p className="text-[10px] text-[#52525B]">
+                        Version Compare: previous version not found in current asset page.
+                      </p>
+                    )
                   )}
-                  <div className="mt-3">
+
+                  {imageInspectorTab === "annotate" && (
                     <ImageAnnotationPanel
                       assetId={inspectAsset.id}
                       imageUrl={inspectAsset.preview_url}
@@ -1963,7 +1963,7 @@ export default function DashboardPage() {
                       canModerate={canManageAnnotations}
                       refreshKey={annotationRefreshTick}
                     />
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -2163,22 +2163,16 @@ function VersionComparePanel({
   afterUrl,
   beforeLabel,
   afterLabel,
-  canCreateAnnotation,
-  onCreateAnnotation,
 }: {
   beforeUrl: string;
   afterUrl: string;
   beforeLabel: string;
   afterLabel: string;
-  canCreateAnnotation?: boolean;
-  onCreateAnnotation?: (payload: { x: number; y: number; text: string }) => void | Promise<void>;
 }) {
   const [split, setSplit] = useState(50);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [heatmapUrl, setHeatmapUrl] = useState<string | null>(null);
   const [diffRatio, setDiffRatio] = useState<number | null>(null);
-  const [annotateMode, setAnnotateMode] = useState(false);
-  const [annotateText, setAnnotateText] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -2258,18 +2252,6 @@ function VersionComparePanel({
       <div className="flex items-center justify-between mb-2">
         <p className="text-[11px] font-semibold text-[#A1A1AA]">Version Compare (MVP)</p>
         <div className="flex items-center gap-2">
-          {canCreateAnnotation && (
-            <button
-              onClick={() => setAnnotateMode((v) => !v)}
-              className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide border transition-colors ${
-                annotateMode
-                  ? "bg-[#3B82F6]/15 text-[#60A5FA] border-[#3B82F6]/30"
-                  : "bg-[#121212] text-[#71717A] border-[#27272A] hover:text-[#A1A1AA]"
-              }`}
-            >
-              Pin from Diff
-            </button>
-          )}
           <button
             onClick={() => setShowHeatmap((v) => !v)}
             className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide border transition-colors ${
@@ -2283,14 +2265,6 @@ function VersionComparePanel({
           <p className="text-[10px] text-[#52525B]">{showHeatmap ? (diffRatio !== null ? `${(diffRatio * 100).toFixed(1)}% changed` : "analyzing") : `${split}%`}</p>
         </div>
       </div>
-      {annotateMode && canCreateAnnotation && (
-        <input
-          value={annotateText}
-          onChange={(e) => setAnnotateText(e.target.value)}
-          placeholder="Annotation note (click compare surface to place)"
-          className="w-full mb-2 h-8 px-2 rounded-md bg-[#121212] border border-[#27272A] text-xs text-[#EDEDED] placeholder:text-[#52525B] focus:border-[#3F3F46] focus:outline-none"
-        />
-      )}
       <div className="relative h-64 rounded-md border border-[#27272A] bg-[#121212] overflow-hidden">
         <img src={beforeUrl} alt="before" className="absolute inset-0 w-full h-full object-contain pointer-events-none" />
         {showHeatmap ? (
@@ -2306,22 +2280,6 @@ function VersionComparePanel({
             </div>
             <div className="absolute inset-y-0 w-px bg-white/70" style={{ left: `${split}%` }} />
           </>
-        )}
-        {annotateMode && canCreateAnnotation && (
-          <button
-            onClick={(e) => {
-              if (!annotateText.trim() || !onCreateAnnotation) return;
-              const rect = e.currentTarget.getBoundingClientRect();
-              if (rect.width <= 0 || rect.height <= 0) return;
-              const x = clamp01((e.clientX - rect.left) / rect.width);
-              const y = clamp01((e.clientY - rect.top) / rect.height);
-              onCreateAnnotation({ x, y, text: annotateText.trim() });
-              setAnnotateText("");
-              setAnnotateMode(false);
-            }}
-            className="absolute inset-0 cursor-crosshair"
-            aria-label="Create annotation from compare"
-          />
         )}
         <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/60 text-[9px] text-[#EDEDED] border border-white/10" title={beforeLabel}>
           Before
