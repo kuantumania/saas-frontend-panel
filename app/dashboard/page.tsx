@@ -34,6 +34,18 @@ function formatSize(kb?: number) {
   return kb < 1024 ? `${kb} KB` : `${(kb / 1024).toFixed(1)} MB`;
 }
 
+function ageHours(d?: string) {
+  if (!d) return 0;
+  return Math.max(0, (Date.now() - new Date(d).getTime()) / 3600000);
+}
+
+function slaState(d?: string): { label: string; cls: string } {
+  const h = ageHours(d);
+  if (h >= 24) return { label: "SLA Breach", cls: "bg-rose-500/10 text-rose-400 ring-rose-500/20" };
+  if (h >= 8) return { label: "At Risk", cls: "bg-amber-500/10 text-amber-400 ring-amber-500/20" };
+  return { label: "Healthy", cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
+}
+
 function fileIcon(type?: string) {
   if (!type) return <FileText className="w-4 h-4" strokeWidth={1.5} />;
   if (type.includes("image")) return <Image className="w-4 h-4" strokeWidth={1.5} />;
@@ -461,6 +473,37 @@ export default function DashboardPage() {
 
     return sameBase.sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
   })();
+  const riskSummary = (() => {
+    const v = assetMeta?.violations || [];
+    if (!Array.isArray(v) || v.length === 0) {
+      return { label: "Low Risk", score: 12, cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
+    }
+    const err = v.filter((x: any) => x?.severity === "error").length;
+    const warn = v.filter((x: any) => x?.severity !== "error").length;
+    const score = Math.min(100, err * 35 + warn * 12 + 8);
+    if (score >= 70) return { label: "High Risk", score, cls: "bg-rose-500/10 text-rose-400 ring-rose-500/20" };
+    if (score >= 35) return { label: "Medium Risk", score, cls: "bg-amber-500/10 text-amber-400 ring-amber-500/20" };
+    return { label: "Low Risk", score, cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
+  })();
+  const cockpit = (() => {
+    const pending = pendingAssets || [];
+    const overdue = pending.filter((a: any) => ageHours(a.created_at) >= 24).length;
+    const atRisk = pending.filter((a: any) => {
+      const h = ageHours(a.created_at);
+      return h >= 8 && h < 24;
+    }).length;
+    const medianH = pending.length
+      ? [...pending]
+          .map((a: any) => ageHours(a.created_at))
+          .sort((a: number, b: number) => a - b)[Math.floor(pending.length / 2)]
+      : 0;
+    return {
+      overdue,
+      atRisk,
+      healthy: Math.max(0, pending.length - overdue - atRisk),
+      medianReviewHours: medianH,
+    };
+  })();
 
   const handleMemberUploadFile = async (file: File) => {
     if (!token || !file) return;
@@ -727,6 +770,33 @@ export default function DashboardPage() {
           </>
         ) : (
           <>
+        <section className="rounded-xl border border-[#1E1E1E] bg-[#121212] p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
+              <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Decision Cockpit</h2>
+            </div>
+            <span className="text-[10px] text-[#71717A]">Approve-to-Unity focus</span>
+          </div>
+          <div className="grid grid-cols-4 gap-3">
+            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">SLA Breach</p>
+              <p className="text-lg font-semibold text-rose-400">{cockpit.overdue}</p>
+            </div>
+            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">At Risk</p>
+              <p className="text-lg font-semibold text-amber-400">{cockpit.atRisk}</p>
+            </div>
+            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Healthy Queue</p>
+              <p className="text-lg font-semibold text-emerald-400">{cockpit.healthy}</p>
+            </div>
+            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Median Queue Time</p>
+              <p className="text-lg font-semibold text-[#EDEDED]">{cockpit.medianReviewHours.toFixed(1)}h</p>
+            </div>
+          </div>
+        </section>
 
         {/* ── METRICS ROW ────────────────────────── */}
         <section className="grid grid-cols-4 gap-4 mb-10 stagger">
@@ -812,6 +882,14 @@ export default function DashboardPage() {
                           <p className="text-xs text-[#52525B] mt-0.5">
                             {a.uploader_name || "Unknown"} · {formatSize(a.file_size_kb)}
                           </p>
+                        </div>
+                        <div className="flex flex-col items-end mr-1">
+                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ring-1 ${slaState(a.created_at).cls}`}>
+                            {slaState(a.created_at).label}
+                          </span>
+                          <span className="text-[10px] text-[#52525B] mt-1">
+                            {ageHours(a.created_at).toFixed(1)}h
+                          </span>
                         </div>
 
                         {/* Actions — ghost buttons */}
@@ -1567,6 +1645,9 @@ export default function DashboardPage() {
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-md bg-[#3B82F6]/10 text-[#3B82F6] ring-1 ring-[#3B82F6]/20">
                         {assetMeta.metadata.type || 'Unknown'}
+                      </span>
+                      <span className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-md ring-1 ${riskSummary.cls}`}>
+                        Risk {riskSummary.score} · {riskSummary.label}
                       </span>
                       {assetMeta.metadata.format && (
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-white/[0.04] text-[#71717A] ring-1 ring-white/[0.06]">
