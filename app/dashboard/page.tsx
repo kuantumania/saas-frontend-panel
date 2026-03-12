@@ -231,6 +231,7 @@ export default function DashboardPage() {
   const [assetQaGuidance, setAssetQaGuidance] = useState<any>(null);
   const [qaGuideLoading, setQaGuideLoading] = useState(false);
   const [qaProfile, setQaProfile] = useState<"mobile" | "pc" | "console">("pc");
+  const [creatingQaTaskKey, setCreatingQaTaskKey] = useState<string | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
 
   // ── UI State ──
@@ -550,6 +551,26 @@ export default function DashboardPage() {
     setAssignDueAt("");
     setAssignNote("");
     await loadAll();
+  };
+
+  const handleCreateQaTask = async (title: string, taskKey: string) => {
+    if (!token || !inspectAsset?.id) return;
+    setCreatingQaTaskKey(taskKey);
+    const res = await api.createAssetAnnotation(token, inspectAsset.id, {
+      x: 0.5,
+      y: 0.5,
+      text: `[Tech Art AI][${qaProfile.toUpperCase()}] ${title}`,
+    });
+    setCreatingQaTaskKey(null);
+    if ((res as any)?.error) {
+      setToast(`Task create failed: ${(res as any).error}`);
+      return;
+    }
+    setAnnotationRefreshTick((v) => v + 1);
+    if (inferAssetKind(inspectAsset, assetMeta?.metadata) === "image") {
+      setImageInspectorTab("annotate");
+    }
+    setToast("Tech task added to annotations");
   };
 
   const handleInvite = async (role: string) => {
@@ -2455,6 +2476,27 @@ export default function DashboardPage() {
                             <p className="text-xs text-[#A1A1AA] leading-relaxed">
                               {assetQaGuidance?.guidance?.summary || "Guidance unavailable for this asset."}
                             </p>
+                            {canManageAnnotations && (
+                              <div className="mt-2 flex items-center gap-1.5">
+                                <button
+                                  onClick={() => handleCreateQaTask("Review technical checklist and resolve failed checks.", "qa-summary")}
+                                  disabled={creatingQaTaskKey === "qa-summary"}
+                                  className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide transition-colors ${
+                                    creatingQaTaskKey === "qa-summary"
+                                      ? "bg-white/[0.04] text-[#52525B] cursor-not-allowed"
+                                      : "bg-blue-500/10 text-blue-300 ring-1 ring-blue-500/20 hover:bg-blue-500/20"
+                                  }`}
+                                >
+                                  {creatingQaTaskKey === "qa-summary" ? "Creating..." : "Add Tech Task"}
+                                </button>
+                                <button
+                                  onClick={() => openAssignModal(inspectAsset)}
+                                  className="px-2 py-1 rounded text-[10px] uppercase tracking-wide bg-white/[0.04] text-[#A1A1AA] ring-1 ring-white/[0.08] hover:text-[#EDEDED] hover:bg-white/[0.08] transition-colors"
+                                >
+                                  Assign Owner
+                                </button>
+                              </div>
+                            )}
 
                             {assetQaGuidance?.guidance?.reviewer_suggestion?.name && (
                               <p className="text-[11px] text-[#71717A] mt-2">
@@ -2479,7 +2521,20 @@ export default function DashboardPage() {
                                     }`}>
                                       {String(step.priority || "low").toUpperCase()}
                                     </span>
-                                    <p className="text-[11px] text-[#A1A1AA]">{step.title}</p>
+                                    <p className="text-[11px] text-[#A1A1AA] flex-1">{step.title}</p>
+                                    {canManageAnnotations && (
+                                      <button
+                                        onClick={() => handleCreateQaTask(step.title, `checklist-${step.id || idx}`)}
+                                        disabled={creatingQaTaskKey === `checklist-${step.id || idx}`}
+                                        className={`px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wide transition-colors ${
+                                          creatingQaTaskKey === `checklist-${step.id || idx}`
+                                            ? "bg-white/[0.04] text-[#52525B] cursor-not-allowed"
+                                            : "bg-blue-500/10 text-blue-300 ring-1 ring-blue-500/20 hover:bg-blue-500/20"
+                                        }`}
+                                      >
+                                        Task
+                                      </button>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -2509,12 +2564,27 @@ export default function DashboardPage() {
                                 {Array.isArray(assetQaGuidance.deep_analysis.checks) && assetQaGuidance.deep_analysis.checks.length > 0 && (
                                   <div className="space-y-1">
                                     {assetQaGuidance.deep_analysis.checks.slice(0, 6).map((c: any, idx: number) => (
-                                      <div key={`deep-check-${c.key || idx}`} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 text-[10px]">
+                                      <div key={`deep-check-${c.key || idx}`} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 text-[10px]">
                                         <span className="text-[#A1A1AA] truncate">{c.label}</span>
                                         <span className="text-[#71717A] font-mono">actual {formatTechValue(c.actual, c.key)}</span>
                                         <span className={`font-medium ${c.status === "pass" ? "text-emerald-300" : "text-rose-300"}`}>
                                           {c.status === "pass" ? "PASS" : "FAIL"} / {formatTechValue(c.limit, c.key)}
                                         </span>
+                                        {canManageAnnotations && c.status === "fail" ? (
+                                          <button
+                                            onClick={() => handleCreateQaTask(`${c.label}: actual ${formatTechValue(c.actual, c.key)} / target ${formatTechValue(c.limit, c.key)}`, `deep-${c.key || idx}`)}
+                                            disabled={creatingQaTaskKey === `deep-${c.key || idx}`}
+                                            className={`justify-self-end px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wide transition-colors ${
+                                              creatingQaTaskKey === `deep-${c.key || idx}`
+                                                ? "bg-white/[0.04] text-[#52525B] cursor-not-allowed"
+                                                : "bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/20 hover:bg-rose-500/20"
+                                            }`}
+                                          >
+                                            Fix Task
+                                          </button>
+                                        ) : (
+                                          <span />
+                                        )}
                                       </div>
                                     ))}
                                   </div>
