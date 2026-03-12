@@ -2520,6 +2520,13 @@ export default function DashboardPage() {
                     <p className="text-[9px] text-[#52525B] mb-1">
                       Sync runs: {unitySyncHealth?.sync_runs?.total || 0} · success {unitySyncHealth?.sync_runs?.success || 0} · failed {unitySyncHealth?.sync_runs?.failed || 0} · no-change {unitySyncHealth?.sync_runs?.no_changes || 0}
                     </p>
+                    <p className="text-[9px] text-[#52525B] mb-1">
+                      Auto/manual:{" "}
+                      {((unitySyncHealth?.sync_runs?.by_mode || []) as any[])
+                        .map((x: any) => `${x.mode}:${x.status}=${x.count}`)
+                        .slice(0, 4)
+                        .join(" · ") || "n/a"}
+                    </p>
                     <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
                       {((unitySyncHealth.breakdown || []) as any[])
                         .filter((b: any) => b?.status === "failed")
