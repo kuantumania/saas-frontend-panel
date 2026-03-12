@@ -1,14 +1,19 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense, useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Canvas, useLoader } from "@react-three/fiber";
+import { OrbitControls, Bounds, Center, Environment, ContactShadows, Html, useGLTF, useFBX } from "@react-three/drei";
+import { EffectComposer, Bloom, SSAO } from "@react-three/postprocessing";
+import { OBJLoader } from "three-stdlib";
+import * as THREE from "three";
 import {
   Search, Bell, LogOut, Users, Package, Clock, CheckCircle2,
   MoreHorizontal, Check, X, MessageCircle, Upload, UserPlus,
   Activity, ChevronRight, Copy, Eye, EyeOff, Gamepad2,
   CreditCard, ExternalLink, Layers, ArrowUpRight,
   FileText, Image, Box, Volume2, Folder, Shield,
-  AlertTriangle, Trash2, Plus, Info, Cpu, Zap,
+  AlertTriangle, Trash2, Plus, Info, Cpu, Zap, Play, Pause, Repeat,
 } from "lucide-react";
 import * as api from "@/lib/api";
 
@@ -35,6 +40,26 @@ function fileIcon(type?: string) {
   if (type.includes("fbx") || type.includes("model") || type.includes("obj")) return <Box className="w-4 h-4" strokeWidth={1.5} />;
   if (type.includes("audio")) return <Volume2 className="w-4 h-4" strokeWidth={1.5} />;
   return <FileText className="w-4 h-4" strokeWidth={1.5} />;
+}
+
+const MODEL_PREVIEWABLE_FORMATS = new Set(["glb", "gltf", "obj", "fbx"]);
+const KNOWN_3D_FORMATS = new Set(["glb", "gltf", "fbx", "obj", "stl", "blend", "dae"]);
+
+function getFilenameExtension(name?: string) {
+  if (!name || !name.includes(".")) return "";
+  return name.split(".").pop()?.toLowerCase() || "";
+}
+
+function inferAssetKind(asset: any, metadata?: any): "3d" | "image" | "audio" | "other" {
+  const mime = String(asset?.file_type || "").toLowerCase();
+  const ext = getFilenameExtension(asset?.filename);
+  const format = String(metadata?.format || "").toLowerCase();
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("audio/")) return "audio";
+  if (KNOWN_3D_FORMATS.has(ext) || KNOWN_3D_FORMATS.has(format) || mime.includes("model") || mime.includes("fbx") || mime.includes("gltf")) {
+    return "3d";
+  }
+  return "other";
 }
 
 const statusConfig: Record<string, { label: string; bg: string; text: string; ring: string }> = {
@@ -286,6 +311,16 @@ export default function DashboardPage() {
   };
 
   if (!token) return null;
+  const inspectKind = inspectAsset ? inferAssetKind(inspectAsset, assetMeta?.metadata) : "other";
+  const conversionStatus = assetMeta?.metadata?.conversion?.status || null;
+  const convertedReady = assetMeta?.metadata?.conversion?.status === "ready";
+  const inspectFormat = convertedReady
+    ? "glb"
+    : (String(assetMeta?.metadata?.format || getFilenameExtension(inspectAsset?.filename))).toLowerCase();
+  const canRender3DPreview =
+    inspectKind === "3d" &&
+    MODEL_PREVIEWABLE_FORMATS.has(inspectFormat) &&
+    Boolean(inspectAsset?.preview_url);
 
   // ═══════════════════════════════════════════════════
   // RENDER
@@ -293,7 +328,6 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#EDEDED] font-[family-name:var(--font-geist-sans)]">
-
       {/* ── COMMAND HUB (Top Bar) ─────────────────── */}
       <header className="sticky top-0 z-40 border-b border-[#1E1E1E] bg-[#0A0A0A]/80 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto flex items-center justify-between px-6 h-14">
@@ -1128,7 +1162,7 @@ export default function DashboardPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               onClick={e => e.stopPropagation()}
-              className="w-full max-w-lg rounded-xl bg-[#121212] border border-[#27272A] shadow-2xl shadow-black/50 overflow-hidden"
+              className="w-full max-w-3xl rounded-xl bg-[#121212] border border-[#27272A] shadow-2xl shadow-black/50 overflow-hidden"
             >
               {/* Header */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-[#1E1E1E]">
@@ -1152,6 +1186,45 @@ export default function DashboardPage() {
                 </div>
                 <div className="ml-auto"><StatusBadge status={inspectAsset.status} /></div>
               </div>
+
+              {/* FAZ 11: 3D Preview */}
+              {inspectKind === "3d" && (
+                <div className="px-5 py-4 border-b border-[#1E1E1E]">
+                  <div className="rounded-xl border border-[#27272A] bg-[#0A0A0A] overflow-hidden h-64">
+                    {canRender3DPreview ? (
+                      <ModelPreviewCanvas
+                        src={inspectAsset.preview_url}
+                        format={inspectFormat}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center text-center px-5">
+                        <Box className="w-5 h-5 text-[#3F3F46] mb-2" strokeWidth={1.5} />
+                        <p className="text-xs text-[#71717A]">
+                          {conversionStatus === "pending"
+                            ? "Model is converting to GLB for web preview..."
+                            : "3D preview will be supported for this format soon."}
+                        </p>
+                        <p className="text-[10px] text-[#52525B] mt-1">
+                          Current format: {inspectFormat || "unknown"} · Supported now: glb, gltf, obj, fbx
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-[#52525B] mt-2">FAZ 11 Preview (v2): React Three Fiber + Drei + PostProcessing.</p>
+                </div>
+              )}
+
+              {inspectKind === "image" && inspectAsset?.preview_url && (
+                <div className="px-5 py-4 border-b border-[#1E1E1E]">
+                  <TextureInspectorPanel imageUrl={inspectAsset.preview_url} />
+                </div>
+              )}
+
+              {inspectKind === "audio" && inspectAsset?.preview_url && (
+                <div className="px-5 py-4 border-b border-[#1E1E1E]">
+                  <AudioInspectorPanel audioUrl={inspectAsset.preview_url} />
+                </div>
+              )}
 
               {/* Metadata */}
               <div className="px-5 py-4 max-h-96 overflow-y-auto">
@@ -1227,6 +1300,421 @@ export default function DashboardPage() {
       <AnimatePresence>
         {toast && <Toast message={toast} onDone={() => setToast(null)} />}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════
+// FAZ 11: 3D PREVIEW HELPERS
+// ═══════════════════════════════════════════════════
+
+function ModelPreviewCanvas({ src, format }: { src: string; format: string }) {
+  return (
+    <Canvas camera={{ position: [2.8, 1.8, 2.8], fov: 50 }}>
+      <color attach="background" args={["#0A0A0A"]} />
+      <ambientLight intensity={0.6} />
+      <directionalLight position={[5, 6, 3]} intensity={1.2} />
+
+      <Suspense fallback={<PreviewLoader />}>
+        <Bounds fit clip observe margin={1.2}>
+          <Center>
+            <Loaded3DModel src={src} format={format} />
+          </Center>
+        </Bounds>
+        <Environment preset="city" />
+        <ContactShadows
+          position={[0, -1.1, 0]}
+          opacity={0.45}
+          scale={10}
+          blur={2}
+          far={5}
+        />
+      </Suspense>
+
+      <EffectComposer multisampling={4}>
+        <SSAO
+          samples={12}
+          radius={0.22}
+          intensity={16}
+          luminanceInfluence={0.45}
+        />
+        <Bloom intensity={0.18} luminanceThreshold={0.45} mipmapBlur />
+      </EffectComposer>
+
+      <OrbitControls makeDefault autoRotate autoRotateSpeed={0.6} enableDamping dampingFactor={0.08} />
+    </Canvas>
+  );
+}
+
+function PreviewLoader() {
+  return (
+    <Html center>
+      <div className="text-[11px] text-[#71717A] px-2 py-1 rounded bg-[#121212] border border-[#27272A]">
+        Loading model...
+      </div>
+    </Html>
+  );
+}
+
+function Loaded3DModel({ src, format }: { src: string; format: string }) {
+  const normalized = format.toLowerCase();
+
+  if (normalized === "fbx") {
+    const fbx = useFBX(src);
+    const cloned = useMemo(() => fbx.clone(true), [fbx]);
+    normalizeScene(cloned);
+    return <primitive object={cloned} />;
+  }
+
+  if (normalized === "obj") {
+    const obj = useLoader(OBJLoader, src);
+    const cloned = useMemo(() => obj.clone(true), [obj]);
+    normalizeScene(cloned);
+    return <primitive object={cloned} />;
+  }
+
+  const gltf = useGLTF(src);
+  const cloned = useMemo(() => gltf.scene.clone(true), [gltf.scene]);
+  normalizeScene(cloned);
+  return <primitive object={cloned} />;
+}
+
+function normalizeScene(root: THREE.Object3D) {
+  root.traverse((node) => {
+    if ((node as THREE.Mesh).isMesh) {
+      const mesh = node as THREE.Mesh;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      if (!mesh.material) {
+        mesh.material = new THREE.MeshStandardMaterial({ color: "#B4B4B8", metalness: 0.2, roughness: 0.65 });
+      }
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// FAZ 11: TEXTURE + AUDIO INSPECTOR
+// ═══════════════════════════════════════════════════
+
+type TextureChannel = "rgba" | "r" | "g" | "b" | "a";
+
+function TextureInspectorPanel({ imageUrl }: { imageUrl: string }) {
+  const osdContainerRef = useRef<HTMLDivElement | null>(null);
+  const channelCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sourceImageRef = useRef<HTMLImageElement | null>(null);
+  const sourceDataRef = useRef<ImageData | null>(null);
+  const [channel, setChannel] = useState<TextureChannel>("rgba");
+  const [pixel, setPixel] = useState<{ x: number; y: number; r: number; g: number; b: number; a: number } | null>(null);
+  const [mips, setMips] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!osdContainerRef.current) return;
+    let viewer: any = null;
+    let cancelled = false;
+
+    (async () => {
+      const mod: any = await import("openseadragon");
+      if (cancelled || !osdContainerRef.current) return;
+      const OSD = mod.default || mod;
+      viewer = OSD({
+        element: osdContainerRef.current,
+        prefixUrl: "https://openseadragon.github.io/openseadragon/images/",
+        tileSources: { type: "image", url: imageUrl },
+        showNavigator: true,
+        animationTime: 0.8,
+        blendTime: 0.1,
+        maxZoomPixelRatio: 2.5,
+        zoomPerScroll: 1.25,
+        constrainDuringPan: true,
+        visibilityRatio: 1,
+      } as any);
+    })();
+
+    return () => {
+      cancelled = true;
+      try {
+        if (viewer) viewer.destroy();
+      } catch (_) {
+        // no-op
+      }
+    };
+  }, [imageUrl]);
+
+  useEffect(() => {
+    const img = new window.Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      sourceImageRef.current = img;
+      const temp = document.createElement("canvas");
+      temp.width = img.naturalWidth;
+      temp.height = img.naturalHeight;
+      const tctx = temp.getContext("2d", { willReadFrequently: true });
+      if (!tctx) return;
+      tctx.drawImage(img, 0, 0);
+      sourceDataRef.current = tctx.getImageData(0, 0, temp.width, temp.height);
+      renderChannelCanvas(channel);
+      buildMipmaps(img);
+    };
+    img.src = imageUrl;
+  }, [imageUrl]);
+
+  useEffect(() => {
+    renderChannelCanvas(channel);
+  }, [channel]);
+
+  const renderChannelCanvas = useCallback((mode: TextureChannel) => {
+    const canvas = channelCanvasRef.current;
+    const img = sourceImageRef.current;
+    const source = sourceDataRef.current;
+    if (!canvas || !img || !source) return;
+
+    const maxW = 520;
+    const scale = Math.min(1, maxW / img.naturalWidth);
+    canvas.width = Math.max(1, Math.floor(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.floor(img.naturalHeight * scale));
+
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+
+    const out = new ImageData(new Uint8ClampedArray(source.data), source.width, source.height);
+    for (let i = 0; i < out.data.length; i += 4) {
+      const r = out.data[i];
+      const g = out.data[i + 1];
+      const b = out.data[i + 2];
+      const a = out.data[i + 3];
+      if (mode === "r") {
+        out.data[i] = r; out.data[i + 1] = 0; out.data[i + 2] = 0; out.data[i + 3] = 255;
+      } else if (mode === "g") {
+        out.data[i] = 0; out.data[i + 1] = g; out.data[i + 2] = 0; out.data[i + 3] = 255;
+      } else if (mode === "b") {
+        out.data[i] = 0; out.data[i + 1] = 0; out.data[i + 2] = b; out.data[i + 3] = 255;
+      } else if (mode === "a") {
+        out.data[i] = a; out.data[i + 1] = a; out.data[i + 2] = a; out.data[i + 3] = 255;
+      }
+    }
+
+    const tmp = document.createElement("canvas");
+    tmp.width = source.width;
+    tmp.height = source.height;
+    const tctx = tmp.getContext("2d");
+    if (!tctx) return;
+    tctx.putImageData(out, 0, 0);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(tmp, 0, 0, canvas.width, canvas.height);
+  }, []);
+
+  const buildMipmaps = useCallback((img: HTMLImageElement) => {
+    const levels: string[] = [];
+    let w = img.naturalWidth;
+    let h = img.naturalHeight;
+    const temp = document.createElement("canvas");
+    const tctx = temp.getContext("2d");
+    if (!tctx) return;
+
+    for (let i = 0; i < 8; i += 1) {
+      temp.width = Math.max(1, Math.floor(w));
+      temp.height = Math.max(1, Math.floor(h));
+      tctx.clearRect(0, 0, temp.width, temp.height);
+      tctx.drawImage(img, 0, 0, temp.width, temp.height);
+      levels.push(temp.toDataURL("image/png"));
+      if (w <= 1 && h <= 1) break;
+      w = w / 2;
+      h = h / 2;
+    }
+    setMips(levels);
+  }, []);
+
+  const onCanvasHover = (e: ReactMouseEvent<HTMLCanvasElement>) => {
+    const canvas = channelCanvasRef.current;
+    const source = sourceDataRef.current;
+    if (!canvas || !source) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor(((e.clientX - rect.left) / rect.width) * source.width);
+    const y = Math.floor(((e.clientY - rect.top) / rect.height) * source.height);
+    const ix = Math.min(source.width - 1, Math.max(0, x));
+    const iy = Math.min(source.height - 1, Math.max(0, y));
+    const idx = (iy * source.width + ix) * 4;
+    setPixel({
+      x: ix,
+      y: iy,
+      r: source.data[idx],
+      g: source.data[idx + 1],
+      b: source.data[idx + 2],
+      a: source.data[idx + 3],
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-2">
+          <div ref={osdContainerRef} className="h-64 rounded-md overflow-hidden" />
+          <p className="text-[10px] text-[#52525B] mt-2">Deep zoom (OpenSeadragon)</p>
+        </div>
+        <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+          <p className="text-[11px] font-semibold text-[#A1A1AA] mb-2">Channel Isolation + Pixel Inspector</p>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {(["rgba", "r", "g", "b", "a"] as TextureChannel[]).map((c) => (
+              <button
+                key={c}
+                onClick={() => setChannel(c)}
+                className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide border transition-colors ${
+                  channel === c
+                    ? "bg-[#3B82F6]/15 text-[#60A5FA] border-[#3B82F6]/30"
+                    : "bg-[#121212] text-[#71717A] border-[#27272A] hover:text-[#A1A1AA]"
+                }`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+          <canvas
+            ref={channelCanvasRef}
+            onMouseMove={onCanvasHover}
+            className="w-full rounded border border-[#27272A] bg-[#121212] cursor-crosshair"
+          />
+          <div className="mt-2 text-[10px] text-[#71717A] font-mono">
+            {pixel
+              ? `x:${pixel.x} y:${pixel.y} | R:${pixel.r} G:${pixel.g} B:${pixel.b} A:${pixel.a}`
+              : "Hover to inspect pixel values"}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+        <p className="text-[11px] font-semibold text-[#A1A1AA] mb-2">Mipmap Grid</p>
+        <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+          {mips.map((src, idx) => (
+            <div key={`${src}-${idx}`} className="rounded border border-[#27272A] bg-[#121212] p-1">
+              <img src={src} alt={`mip-${idx}`} className="w-full h-14 object-contain" />
+              <p className="text-[9px] text-[#52525B] text-center mt-1">L{idx}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AudioInspectorPanel({ audioUrl }: { audioUrl: string }) {
+  const waveRef = useRef<HTMLDivElement | null>(null);
+  const spectroRef = useRef<HTMLDivElement | null>(null);
+  const wsRef = useRef<any>(null);
+  const [ready, setReady] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [loop, setLoop] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const loopRef = useRef(false);
+  loopRef.current = loop;
+
+  useEffect(() => {
+    if (!waveRef.current || !spectroRef.current) return;
+    let ws: any = null;
+    let cancelled = false;
+
+    (async () => {
+      const wsMod: any = await import("wavesurfer.js");
+      const spMod: any = await import("wavesurfer.js/dist/plugins/spectrogram.esm.js");
+      if (cancelled || !waveRef.current || !spectroRef.current) return;
+
+      const WaveSurferCtor = wsMod.default || wsMod;
+      const SpectrogramPlugin = spMod.default || spMod;
+
+      ws = WaveSurferCtor.create({
+        container: waveRef.current,
+        height: 72,
+        waveColor: "#334155",
+        progressColor: "#3B82F6",
+        cursorColor: "#F59E0B",
+        barWidth: 2,
+        barGap: 1,
+        url: audioUrl,
+        normalize: true,
+        plugins: [
+          SpectrogramPlugin.create({
+            container: spectroRef.current,
+            labels: false,
+            height: 96,
+            splitChannels: false,
+          }),
+        ],
+      });
+
+      ws.on("ready", () => {
+        setReady(true);
+        setDuration(ws.getDuration());
+      });
+      ws.on("play", () => setPlaying(true));
+      ws.on("pause", () => setPlaying(false));
+      ws.on("finish", () => {
+        if (loopRef.current) {
+          ws.play();
+        } else {
+          setPlaying(false);
+        }
+      });
+
+      wsRef.current = ws;
+    })();
+    return () => {
+      cancelled = true;
+      if (ws) ws.destroy();
+      wsRef.current = null;
+    };
+  }, [audioUrl]);
+
+  const togglePlay = () => {
+    if (!wsRef.current || !ready) return;
+    wsRef.current.playPause();
+  };
+
+  const restart = () => {
+    if (!wsRef.current || !ready) return;
+    wsRef.current.seekTo(0);
+    if (!playing) wsRef.current.play();
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+        <p className="text-[11px] font-semibold text-[#A1A1AA] mb-2">Waveform (WaveSurfer v7)</p>
+        <div ref={waveRef} />
+      </div>
+      <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+        <p className="text-[11px] font-semibold text-[#A1A1AA] mb-2">Spectrum</p>
+        <div ref={spectroRef} className="min-h-24" />
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={togglePlay}
+          className="px-3 py-1.5 rounded-md text-xs font-medium bg-[#3B82F6]/15 text-[#60A5FA] ring-1 ring-[#3B82F6]/30 hover:bg-[#3B82F6]/20 transition-colors inline-flex items-center gap-1.5"
+        >
+          {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          {playing ? "Pause" : "Play"}
+        </button>
+        <button
+          onClick={() => setLoop(v => !v)}
+          className={`px-3 py-1.5 rounded-md text-xs font-medium ring-1 transition-colors inline-flex items-center gap-1.5 ${
+            loop
+              ? "bg-[#F59E0B]/15 text-[#FBBF24] ring-[#F59E0B]/30"
+              : "bg-white/[0.04] text-[#71717A] ring-white/[0.08] hover:text-[#A1A1AA]"
+          }`}
+        >
+          <Repeat className="w-3.5 h-3.5" />
+          Loop
+        </button>
+        <button
+          onClick={restart}
+          className="px-3 py-1.5 rounded-md text-xs font-medium bg-white/[0.04] text-[#A1A1AA] ring-1 ring-white/[0.08] hover:bg-white/[0.08] transition-colors"
+        >
+          Restart
+        </button>
+        <span className="ml-auto text-[10px] font-mono text-[#52525B]">
+          {duration > 0 ? `${duration.toFixed(2)}s` : "Loading..."}
+        </span>
+      </div>
     </div>
   );
 }
