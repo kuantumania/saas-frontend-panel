@@ -2517,6 +2517,9 @@ export default function DashboardPage() {
                     </div>
                     <p className="text-[9px] text-[#52525B] mb-1">Avg duration: {Math.round(Number(unitySyncHealth.avg_duration_ms || 0))} ms</p>
                     <p className="text-[9px] text-[#52525B] mb-1">Avg retries: {Number(unitySyncHealth.avg_retry_count || 0).toFixed(2)} · Total retries: {unitySyncHealth.total_retries || 0}</p>
+                    <p className="text-[9px] text-[#52525B] mb-1">
+                      Sync runs: {unitySyncHealth?.sync_runs?.total || 0} · success {unitySyncHealth?.sync_runs?.success || 0} · failed {unitySyncHealth?.sync_runs?.failed || 0} · no-change {unitySyncHealth?.sync_runs?.no_changes || 0}
+                    </p>
                     <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
                       {((unitySyncHealth.breakdown || []) as any[])
                         .filter((b: any) => b?.status === "failed")

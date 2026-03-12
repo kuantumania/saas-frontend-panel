@@ -405,6 +405,17 @@ export async function fetchUnitySyncHealth(token: string) {
       total_retries: 0,
       breakdown: [],
       recent_events: [],
+      sync_runs: {
+        total: 0,
+        success: 0,
+        failed: 0,
+        no_changes: 0,
+        avg_duration_ms: 0,
+        avg_retry_count: 0,
+        total_retries: 0,
+        breakdown: [],
+        recent_events: [],
+      },
     };
   }
   return data;
