@@ -2908,6 +2908,14 @@ export default function DashboardPage() {
                                   {isCurrent && (
                                     <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-white/[0.06] text-[#A1A1AA]">Current</span>
                                   )}
+                                  {!isCurrent && (
+                                    <button
+                                      onClick={() => openInspector(v)}
+                                      className="px-2 py-0.5 rounded text-[9px] uppercase tracking-wide transition-colors ring-1 bg-white/[0.03] text-[#A1A1AA] ring-white/[0.08] hover:bg-white/[0.06]"
+                                    >
+                                      Open
+                                    </button>
+                                  )}
                                   {isActive ? (
                                     <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">Active</span>
                                   ) : (
