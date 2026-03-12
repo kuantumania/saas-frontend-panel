@@ -33,6 +33,19 @@ export async function fetchReviewQueue(token: string) {
   return data.queue || [];
 }
 
+export async function scoreAssetRisk(
+  token: string,
+  payload: { asset_id?: string; folder_id?: string; filename?: string; file_size_kb?: number; metadata?: Record<string, any> }
+) {
+  const res = await fetch(`${API}/api/rules/score`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
 export async function fetchLibrary(
   token: string,
   opts: { page?: number; status?: string; search?: string; folderId?: string; tagId?: string } = {}

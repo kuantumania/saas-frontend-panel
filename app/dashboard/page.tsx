@@ -46,6 +46,26 @@ function slaState(d?: string): { label: string; cls: string } {
   return { label: "Healthy", cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
 }
 
+function qaGateState(item: any): "blocked" | "risky" | "ready" {
+  const raw = String(item?.qa_state || "").toLowerCase();
+  if (raw === "blocked" || raw === "risky" || raw === "ready") return raw;
+  const errors = Number(item?.risk_errors || 0);
+  const warnings = Number(item?.risk_warnings || 0);
+  if (errors > 0) return "blocked";
+  if (warnings > 0) return "risky";
+  return "ready";
+}
+
+function qaGateBadge(state: "blocked" | "risky" | "ready") {
+  if (state === "blocked") {
+    return { label: "Blocked", cls: "bg-rose-500/10 text-rose-400 ring-rose-500/20" };
+  }
+  if (state === "risky") {
+    return { label: "Risky", cls: "bg-amber-500/10 text-amber-400 ring-amber-500/20" };
+  }
+  return { label: "Ready", cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
+}
+
 function clamp01(n: number) {
   return Math.max(0, Math.min(1, n));
 }
@@ -180,6 +200,7 @@ export default function DashboardPage() {
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [queueFilter, setQueueFilter] = useState<"all" | "breach" | "at_risk" | "healthy">("all");
+  const [queueQaFilter, setQueueQaFilter] = useState<"all" | "blocked" | "risky" | "ready">("all");
   const [annotationRefreshTick, setAnnotationRefreshTick] = useState(0);
 
   const searchRef = useRef<HTMLInputElement>(null);
@@ -521,6 +542,18 @@ export default function DashboardPage() {
       medianReviewHours: medianH,
     };
   })();
+  const queueScope = (reviewQueue.length ? reviewQueue : pendingAssets) || [];
+  const qaGate = (() => {
+    const blocked = queueScope.filter((q: any) => qaGateState(q) === "blocked").length;
+    const risky = queueScope.filter((q: any) => qaGateState(q) === "risky").length;
+    const ready = queueScope.filter((q: any) => qaGateState(q) === "ready").length;
+    return { blocked, risky, ready, total: queueScope.length };
+  })();
+  const filteredQueue = reviewQueue.filter((q: any) => {
+    const slaOk = queueFilter === "all" ? true : q.sla_state === queueFilter;
+    const qaOk = queueQaFilter === "all" ? true : qaGateState(q) === queueQaFilter;
+    return slaOk && qaOk;
+  });
 
   const handleMemberUploadFile = async (file: File) => {
     if (!token || !file) return;
@@ -829,6 +862,20 @@ export default function DashboardPage() {
               <p className="text-lg font-semibold text-[#EDEDED]">{cockpit.medianReviewHours.toFixed(1)}h</p>
             </div>
           </div>
+          <div className="grid grid-cols-3 gap-3 mt-3">
+            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">QA Blocked</p>
+              <p className="text-lg font-semibold text-rose-400">{qaGate.blocked}</p>
+            </div>
+            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">QA Risky</p>
+              <p className="text-lg font-semibold text-amber-400">{qaGate.risky}</p>
+            </div>
+            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">QA Ready</p>
+              <p className="text-lg font-semibold text-emerald-400">{qaGate.ready}</p>
+            </div>
+          </div>
         </section>
 
         {/* ── METRICS ROW ────────────────────────── */}
@@ -1015,7 +1062,7 @@ export default function DashboardPage() {
               <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Operational Queue</h2>
               <span className="text-xs text-[#52525B]">{reviewQueue.length}</span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-4">
               {(["all", "breach", "at_risk", "healthy"] as const).map((f) => (
                 <button
                   key={f}
@@ -1029,18 +1076,32 @@ export default function DashboardPage() {
                   {f === "all" ? "All" : f === "at_risk" ? "At Risk" : f}
                 </button>
               ))}
+              <div className="w-px h-4 bg-[#27272A]" />
+              {(["all", "blocked", "risky", "ready"] as const).map((f) => (
+                <button
+                  key={`qa-${f}`}
+                  onClick={() => setQueueQaFilter(f)}
+                  className={`px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wide transition-colors ${
+                    queueQaFilter === f
+                      ? "bg-white/[0.08] text-[#EDEDED]"
+                      : "text-[#52525B] hover:text-[#A1A1AA] hover:bg-white/[0.03]"
+                  }`}
+                >
+                  {f === "all" ? "QA: All" : f}
+                </button>
+              ))}
             </div>
           </div>
 
           <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] overflow-hidden">
-            <div className="grid grid-cols-[1fr_90px_70px_170px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] text-[10px] font-semibold tracking-[0.1em] uppercase text-[#3F3F46]">
+            <div className="grid grid-cols-[1fr_90px_80px_70px_170px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] text-[10px] font-semibold tracking-[0.1em] uppercase text-[#3F3F46]">
               <span>Asset</span>
               <span>Priority</span>
+              <span>QA Gate</span>
               <span>SLA</span>
               <span>Action</span>
             </div>
-            {reviewQueue
-              .filter((q: any) => queueFilter === "all" ? true : q.sla_state === queueFilter)
+            {filteredQueue
               .slice(0, 12)
               .map((q: any) => {
                 const sla = q.sla_state
@@ -1053,13 +1114,15 @@ export default function DashboardPage() {
                           : "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
                     }
                   : slaState(q.created_at);
+                const qa = qaGateBadge(qaGateState(q));
                 return (
-                  <div key={`queue-${q.id}`} className="grid grid-cols-[1fr_90px_70px_170px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] last:border-0 items-center hover:bg-white/[0.02]">
+                  <div key={`queue-${q.id}`} className="grid grid-cols-[1fr_90px_80px_70px_170px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] last:border-0 items-center hover:bg-white/[0.02]">
                     <button onClick={() => openInspector(q)} className="text-left min-w-0">
                       <p className="text-sm font-medium text-[#EDEDED] truncate">{q.filename}</p>
                       <p className="text-[10px] text-[#52525B]">{q.uploader_name || "Unknown"} · {q.age_hours?.toFixed?.(1) || ageHours(q.created_at).toFixed(1)}h</p>
                     </button>
                     <span className="text-xs font-semibold text-[#60A5FA]">P{q.priority_score ?? "—"}</span>
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ring-1 w-fit ${qa.cls}`}>{qa.label}</span>
                     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ring-1 w-fit ${sla.cls}`}>{sla.label}</span>
                     <div className="flex items-center gap-1">
                       <button
@@ -1078,7 +1141,7 @@ export default function DashboardPage() {
                   </div>
                 );
               })}
-            {reviewQueue.filter((q: any) => queueFilter === "all" ? true : q.sla_state === queueFilter).length === 0 && (
+            {filteredQueue.length === 0 && (
               <div className="py-10 text-center text-xs text-[#52525B]">No queue items for this filter.</div>
             )}
           </div>
