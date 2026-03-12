@@ -401,7 +401,7 @@ export default function DashboardPage() {
     Boolean(inspectAsset?.preview_url);
   const isLead = (sessionUser?.role || "").toLowerCase() === "lead";
   const memberName = (sessionUser?.name || "").trim();
-  const memberAssets = useMemo(() => {
+  const memberAssets = (() => {
     if (!libraryAssets?.length) return [];
     if (isLead) return libraryAssets;
     if (sessionUser?.id) {
@@ -411,7 +411,7 @@ export default function DashboardPage() {
       return libraryAssets.filter((a: any) => (a.uploader_name || "").trim().toLowerCase() === memberName.toLowerCase());
     }
     return libraryAssets;
-  }, [libraryAssets, isLead, sessionUser?.id, memberName]);
+  })();
 
   const handleMemberUploadFile = async (file: File) => {
     if (!token || !file) return;
