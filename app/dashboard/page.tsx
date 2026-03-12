@@ -1405,7 +1405,9 @@ function TextureInspectorPanel({ imageUrl }: { imageUrl: string }) {
   const sourceDataRef = useRef<ImageData | null>(null);
   const [channel, setChannel] = useState<TextureChannel>("rgba");
   const [pixel, setPixel] = useState<{ x: number; y: number; r: number; g: number; b: number; a: number } | null>(null);
-  const [mips, setMips] = useState<string[]>([]);
+  const [mips, setMips] = useState<Array<{ level: number; width: number; height: number }>>([]);
+  const [pixelReadable, setPixelReadable] = useState(true);
+  const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     if (!osdContainerRef.current) return;
@@ -1445,15 +1447,22 @@ function TextureInspectorPanel({ imageUrl }: { imageUrl: string }) {
     img.crossOrigin = "anonymous";
     img.onload = () => {
       sourceImageRef.current = img;
+      setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
       const temp = document.createElement("canvas");
       temp.width = img.naturalWidth;
       temp.height = img.naturalHeight;
       const tctx = temp.getContext("2d", { willReadFrequently: true });
       if (!tctx) return;
       tctx.drawImage(img, 0, 0);
-      sourceDataRef.current = tctx.getImageData(0, 0, temp.width, temp.height);
-      renderChannelCanvas(channel);
-      buildMipmaps(img);
+      try {
+        sourceDataRef.current = tctx.getImageData(0, 0, temp.width, temp.height);
+        setPixelReadable(true);
+        renderChannelCanvas(channel);
+      } catch {
+        sourceDataRef.current = null;
+        setPixelReadable(false);
+      }
+      buildMipmaps(img.naturalWidth, img.naturalHeight);
     };
     img.src = imageUrl;
   }, [imageUrl]);
@@ -1505,23 +1514,15 @@ function TextureInspectorPanel({ imageUrl }: { imageUrl: string }) {
     ctx.drawImage(tmp, 0, 0, canvas.width, canvas.height);
   }, []);
 
-  const buildMipmaps = useCallback((img: HTMLImageElement) => {
-    const levels: string[] = [];
-    let w = img.naturalWidth;
-    let h = img.naturalHeight;
-    const temp = document.createElement("canvas");
-    const tctx = temp.getContext("2d");
-    if (!tctx) return;
-
+  const buildMipmaps = useCallback((baseWidth: number, baseHeight: number) => {
+    const levels: Array<{ level: number; width: number; height: number }> = [];
+    let w = Math.max(1, Math.floor(baseWidth));
+    let h = Math.max(1, Math.floor(baseHeight));
     for (let i = 0; i < 8; i += 1) {
-      temp.width = Math.max(1, Math.floor(w));
-      temp.height = Math.max(1, Math.floor(h));
-      tctx.clearRect(0, 0, temp.width, temp.height);
-      tctx.drawImage(img, 0, 0, temp.width, temp.height);
-      levels.push(temp.toDataURL("image/png"));
+      levels.push({ level: i, width: w, height: h });
       if (w <= 1 && h <= 1) break;
-      w = w / 2;
-      h = h / 2;
+      w = Math.max(1, Math.floor(w / 2));
+      h = Math.max(1, Math.floor(h / 2));
     }
     setMips(levels);
   }, []);
@@ -1544,6 +1545,14 @@ function TextureInspectorPanel({ imageUrl }: { imageUrl: string }) {
       b: source.data[idx + 2],
       a: source.data[idx + 3],
     });
+  };
+
+  const channelFilter = (mode: TextureChannel) => {
+    if (mode === "r") return "contrast(1.1) sepia(1) saturate(8) hue-rotate(-45deg)";
+    if (mode === "g") return "contrast(1.1) sepia(1) saturate(6) hue-rotate(35deg)";
+    if (mode === "b") return "contrast(1.2) saturate(3) hue-rotate(170deg)";
+    if (mode === "a") return "grayscale(1) contrast(1.5)";
+    return "none";
   };
 
   return (
@@ -1570,15 +1579,26 @@ function TextureInspectorPanel({ imageUrl }: { imageUrl: string }) {
               </button>
             ))}
           </div>
-          <canvas
-            ref={channelCanvasRef}
-            onMouseMove={onCanvasHover}
-            className="w-full rounded border border-[#27272A] bg-[#121212] cursor-crosshair"
-          />
+          {pixelReadable ? (
+            <canvas
+              ref={channelCanvasRef}
+              onMouseMove={onCanvasHover}
+              className="w-full rounded border border-[#27272A] bg-[#121212] cursor-crosshair"
+            />
+          ) : (
+            <img
+              src={imageUrl}
+              alt="channel-preview"
+              className="w-full rounded border border-[#27272A] bg-[#121212] object-contain max-h-56"
+              style={{ filter: channelFilter(channel), imageRendering: "pixelated" }}
+            />
+          )}
           <div className="mt-2 text-[10px] text-[#71717A] font-mono">
-            {pixel
+            {pixelReadable && pixel
               ? `x:${pixel.x} y:${pixel.y} | R:${pixel.r} G:${pixel.g} B:${pixel.b} A:${pixel.a}`
-              : "Hover to inspect pixel values"}
+              : pixelReadable
+                ? "Hover to inspect pixel values"
+                : "Pixel read disabled by cross-origin policy. Channel preview fallback active."}
           </div>
         </div>
       </div>
@@ -1586,13 +1606,18 @@ function TextureInspectorPanel({ imageUrl }: { imageUrl: string }) {
       <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
         <p className="text-[11px] font-semibold text-[#A1A1AA] mb-2">Mipmap Grid</p>
         <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-          {mips.map((src, idx) => (
-            <div key={`${src}-${idx}`} className="rounded border border-[#27272A] bg-[#121212] p-1">
-              <img src={src} alt={`mip-${idx}`} className="w-full h-14 object-contain" />
-              <p className="text-[9px] text-[#52525B] text-center mt-1">L{idx}</p>
+          {mips.map((m) => (
+            <div key={`mip-${m.level}`} className="rounded border border-[#27272A] bg-[#121212] p-1">
+              <img src={imageUrl} alt={`mip-${m.level}`} className="w-full h-14 object-contain" style={{ imageRendering: "pixelated" }} />
+              <p className="text-[9px] text-[#52525B] text-center mt-1">L{m.level} · {m.width}x{m.height}</p>
             </div>
           ))}
         </div>
+        {naturalSize.width > 0 && (
+          <p className="text-[10px] text-[#52525B] mt-2 font-mono">
+            Base: {naturalSize.width}x{naturalSize.height}
+          </p>
+        )}
       </div>
     </div>
   );
