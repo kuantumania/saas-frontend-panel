@@ -258,6 +258,7 @@ export default function DashboardPage() {
   const [imageInspectorTab, setImageInspectorTab] = useState<"inspect" | "compare" | "annotate">("inspect");
   const [annotationRefreshTick, setAnnotationRefreshTick] = useState(0);
   const [reviewHistory, setReviewHistory] = useState<any[]>([]);
+  const [reviewHistoryFilter, setReviewHistoryFilter] = useState<"all" | "ownership" | "escalation" | "routing" | "decision">("all");
 
   const searchRef = useRef<HTMLInputElement>(null);
   const searchTimeout = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -618,6 +619,7 @@ export default function DashboardPage() {
     if (!token) return;
     setInspectAsset(asset);
     setImageInspectorTab("inspect");
+    setReviewHistoryFilter("all");
     setMetaLoading(true);
     const [metaData, versions, history] = await Promise.all([
       api.fetchAssetMetadata(token, asset.id),
@@ -740,6 +742,15 @@ export default function DashboardPage() {
     const slaOk = queueFilter === "all" ? true : q.sla_state === queueFilter;
     const qaOk = queueQaFilter === "all" ? true : qaGateState(q) === queueQaFilter;
     return slaOk && qaOk;
+  });
+  const filteredReviewHistory = reviewHistory.filter((ev: any) => {
+    const a = String(ev?.action || "");
+    if (reviewHistoryFilter === "all") return true;
+    if (reviewHistoryFilter === "ownership") return a === "review_assignment_set";
+    if (reviewHistoryFilter === "escalation") return a === "queue_escalation" || a === "queue_owner_escalation";
+    if (reviewHistoryFilter === "routing") return a === "auto_route_review";
+    if (reviewHistoryFilter === "decision") return a === "approve_asset" || a === "reject_asset" || a === "submit_review";
+    return true;
   });
 
   const handleMemberUploadFile = async (file: File) => {
@@ -2217,7 +2228,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setImageInspectorTab("inspect"); }}
+            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); }}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -2232,7 +2243,7 @@ export default function DashboardPage() {
                   <Cpu className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
                   <span className="text-sm font-semibold text-[#EDEDED]">Asset Inspector</span>
                 </div>
-                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setImageInspectorTab("inspect"); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
+                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
                   <X className="w-4 h-4" strokeWidth={1.5} />
                 </button>
               </div>
@@ -2398,26 +2409,61 @@ export default function DashboardPage() {
 
                     {/* Review Timeline */}
                     <div className="mt-3">
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <Activity className="w-3.5 h-3.5 text-[#71717A]" strokeWidth={1.5} />
-                        <span className="text-[10px] font-semibold tracking-wider uppercase text-[#71717A]">Review Timeline</span>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <Activity className="w-3.5 h-3.5 text-[#71717A]" strokeWidth={1.5} />
+                          <span className="text-[10px] font-semibold tracking-wider uppercase text-[#71717A]">Review Timeline</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {(["all", "ownership", "escalation", "routing", "decision"] as const).map((f) => (
+                            <button
+                              key={`rh-${f}`}
+                              onClick={() => setReviewHistoryFilter(f)}
+                              className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide transition-colors ${
+                                reviewHistoryFilter === f
+                                  ? "bg-white/[0.08] text-[#EDEDED]"
+                                  : "text-[#52525B] hover:text-[#A1A1AA] hover:bg-white/[0.03]"
+                              }`}
+                            >
+                              {f === "all" ? "All" : f}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                       <div className="space-y-1.5">
-                        {reviewHistory.length === 0 ? (
+                        {filteredReviewHistory.length === 0 ? (
                           <div className="px-3 py-2 rounded-lg text-xs bg-white/[0.02] text-[#52525B] ring-1 ring-white/[0.06]">
-                            No review history yet.
+                            No events for this filter.
                           </div>
                         ) : (
-                          reviewHistory.slice(0, 8).map((ev: any) => (
-                            <div key={ev.id} className="px-3 py-2 rounded-lg text-xs bg-white/[0.02] ring-1 ring-white/[0.06]">
-                              <p className="text-[#A1A1AA]">
-                                <span className="text-[#EDEDED] font-medium">{ev.user_name || "System"}</span>{" "}
-                                {activityVerb(ev.action)}{" "}
-                                <span className="text-[#71717A]">{ev.metadata?.filename || inspectAsset?.filename}</span>
-                              </p>
-                              <p className="text-[10px] text-[#52525B] mt-0.5">{timeAgo(ev.created_at)}</p>
-                            </div>
-                          ))
+                          filteredReviewHistory.slice(0, 10).map((ev: any) => {
+                            const badge = reviewActionBadge(ev.action);
+                            const meta = ev.metadata || {};
+                            const rerouteNote = meta.auto_rerouted
+                              ? `Rerouted to ${meta.target_reviewer || "suggested reviewer"}`
+                              : "";
+                            return (
+                              <div key={ev.id} className="px-3 py-2 rounded-lg text-xs bg-white/[0.02] ring-1 ring-white/[0.06]">
+                                <div className="flex items-center gap-2 mb-0.5">
+                                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ring-1 ${badge.cls}`}>{badge.label}</span>
+                                  <span className="text-[10px] text-[#52525B]">{timeAgo(ev.created_at)}</span>
+                                </div>
+                                <p className="text-[#A1A1AA]">
+                                  <span className="text-[#EDEDED] font-medium">{ev.user_name || "System"}</span>{" "}
+                                  {activityVerb(ev.action)}{" "}
+                                  <span className="text-[#71717A]">{meta?.filename || inspectAsset?.filename}</span>
+                                </p>
+                                {(meta.assignee_name || meta.target_reviewer || meta.due_at || rerouteNote) && (
+                                  <p className="text-[10px] text-[#52525B] mt-0.5">
+                                    {meta.assignee_name ? `Owner: ${meta.assignee_name}` : ""}
+                                    {meta.target_reviewer ? `${meta.assignee_name ? " · " : ""}Target: ${meta.target_reviewer}` : ""}
+                                    {meta.due_at ? `${(meta.assignee_name || meta.target_reviewer) ? " · " : ""}Due: ${dueLabel(meta.due_at)}` : ""}
+                                    {rerouteNote ? `${(meta.assignee_name || meta.target_reviewer || meta.due_at) ? " · " : ""}${rerouteNote}` : ""}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })
                         )}
                       </div>
                     </div>
@@ -3304,6 +3350,13 @@ function activityIcon(action: string) {
   switch (action) {
     case "upload": return <Upload className={cls} strokeWidth={1.5} />;
     case "submit_review": return <ArrowUpRight className={cls} strokeWidth={1.5} />;
+    case "review_assignment_set": return <UserPlus className={cls} strokeWidth={1.5} />;
+    case "auto_route_review": return <Zap className={cls + " !text-fuchsia-300"} strokeWidth={1.7} />;
+    case "queue_escalation": return <AlertTriangle className={cls + " !text-rose-400"} strokeWidth={1.7} />;
+    case "queue_owner_escalation": return <AlertTriangle className={cls + " !text-rose-400"} strokeWidth={1.7} />;
+    case "review_owner_reassigned": return <Repeat className={cls + " !text-blue-300"} strokeWidth={1.7} />;
+    case "approve_asset": return <Check className={cls + " !text-emerald-500"} strokeWidth={2} />;
+    case "reject_asset": return <X className={cls + " !text-rose-500"} strokeWidth={2} />;
     case "approve": return <Check className={cls + " !text-emerald-500"} strokeWidth={2} />;
     case "reject": return <X className={cls + " !text-rose-500"} strokeWidth={2} />;
     case "comment": return <MessageCircle className={cls} strokeWidth={1.5} />;
@@ -3317,11 +3370,35 @@ function activityVerb(action: string) {
   switch (action) {
     case "upload": return "uploaded";
     case "submit_review": return "submitted for review";
+    case "approve_asset": return "approved";
+    case "reject_asset": return "rejected";
     case "approve": return "approved";
     case "reject": return "rejected";
     case "comment": return "commented on";
     case "invite": return "invited a member";
     case "join": return "joined the team";
+    case "review_assignment_set": return "assigned review owner on";
+    case "queue_escalation": return "escalated";
+    case "queue_owner_escalation": return "owner-escalated";
+    case "auto_route_review": return "auto-routed";
+    case "review_owner_reassigned": return "reassigned review owner on";
     default: return "performed an action";
   }
+}
+
+function reviewActionBadge(action: string) {
+  const a = String(action || "");
+  if (a === "review_assignment_set" || a === "review_owner_reassigned") {
+    return { label: "Ownership", cls: "bg-blue-500/10 text-blue-300 ring-blue-500/20" };
+  }
+  if (a === "queue_escalation" || a === "queue_owner_escalation") {
+    return { label: "Escalation", cls: "bg-rose-500/10 text-rose-300 ring-rose-500/20" };
+  }
+  if (a === "auto_route_review") {
+    return { label: "Routing", cls: "bg-fuchsia-500/10 text-fuchsia-300 ring-fuchsia-500/25" };
+  }
+  if (a === "approve_asset" || a === "reject_asset" || a === "submit_review") {
+    return { label: "Decision", cls: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/20" };
+  }
+  return { label: "Event", cls: "bg-zinc-500/10 text-zinc-300 ring-zinc-500/20" };
 }
