@@ -139,6 +139,14 @@ function fileIcon(type?: string) {
 
 const MODEL_PREVIEWABLE_FORMATS = new Set(["glb", "gltf", "obj", "fbx"]);
 const KNOWN_3D_FORMATS = new Set(["glb", "gltf", "fbx", "obj", "stl", "blend", "dae"]);
+const UNITY_ROLE_MAP: Record<string, string> = {
+  "2D_Artist": "UI",
+  "3D_Animator": "Particles",
+  "3D_Modeler": "Models",
+  "Technical_Art": "Others",
+  "QA_Tester": "Others",
+  "lead": "Others",
+};
 
 function getFilenameExtension(name?: string) {
   if (!name || !name.includes(".")) return "";
@@ -156,6 +164,11 @@ function extractVersionNumber(name?: string): number | null {
   if (!m) return null;
   const v = Number(m[1]);
   return Number.isFinite(v) ? v : null;
+}
+
+function unityCategoryForRole(role?: string) {
+  if (!role) return "Others";
+  return UNITY_ROLE_MAP[role] || "Others";
 }
 
 function inferAssetKind(asset: any, metadata?: any): "3d" | "image" | "audio" | "other" {
@@ -1027,6 +1040,13 @@ export default function DashboardPage() {
     const fromMeta = assetMeta?.metadata?.active_version_asset_id || inspectAsset?.metadata?.active_version_asset_id;
     return fromMeta ? String(fromMeta) : null;
   })();
+  const unityCategory = unityCategoryForRole(inspectAsset?.uploader_role || inspectAsset?.uploaderRole || "");
+  const unityTargetPath = inspectAsset?.filename
+    ? `Assets/${unityCategory}/${inspectAsset.filename}`
+    : `Assets/${unityCategory}`;
+  const lineageIndex = sortedVersions.findIndex((v: any) => String(v?.id) === String(inspectAsset?.id));
+  const lineagePrev = lineageIndex >= 0 ? sortedVersions[lineageIndex + 1] : null;
+  const lineageNext = lineageIndex >= 0 ? sortedVersions[lineageIndex - 1] : null;
   const compareAsset = (() => {
     if (!inspectAsset || inspectKind !== "image") return null;
     const source = assetVersions.length > 0 ? assetVersions : libraryAssets;
@@ -2938,6 +2958,41 @@ export default function DashboardPage() {
                           <span className="text-[10px] font-semibold tracking-wider uppercase text-[#71717A]">Version Core</span>
                         </div>
                         <span className="text-[10px] text-[#52525B]">{sortedVersions.length} versions</span>
+                      </div>
+
+                      <div className="mb-3 rounded-lg border border-[#1E1E1E] bg-[#0F0F12] px-3 py-2">
+                        <p className="text-[10px] uppercase tracking-wider text-[#52525B]">Unity Target</p>
+                        <p className="text-[11px] text-[#EDEDED] truncate">{unityTargetPath}</p>
+                        <p className="text-[9px] text-[#3F3F46]">Category: {unityCategory}</p>
+                      </div>
+
+                      <div className="mb-3">
+                        <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Lineage</p>
+                        <div className="flex items-center gap-2 text-[10px]">
+                          {lineagePrev ? (
+                            <button
+                              onClick={() => openInspector(lineagePrev)}
+                              className="px-2 py-1 rounded-md border border-[#1E1E1E] bg-[#0F0F12] text-[#A1A1AA] hover:text-[#EDEDED] transition-colors"
+                            >
+                              ← {lineagePrev.filename}
+                            </button>
+                          ) : (
+                            <span className="px-2 py-1 rounded-md border border-[#1E1E1E] bg-[#0F0F12] text-[#3F3F46]">Start</span>
+                          )}
+                          <span className="px-2 py-1 rounded-md border border-blue-500/30 bg-blue-500/10 text-blue-200">
+                            {inspectAsset?.filename || "Current"}
+                          </span>
+                          {lineageNext ? (
+                            <button
+                              onClick={() => openInspector(lineageNext)}
+                              className="px-2 py-1 rounded-md border border-[#1E1E1E] bg-[#0F0F12] text-[#A1A1AA] hover:text-[#EDEDED] transition-colors"
+                            >
+                              {lineageNext.filename} →
+                            </button>
+                          ) : (
+                            <span className="px-2 py-1 rounded-md border border-[#1E1E1E] bg-[#0F0F12] text-[#3F3F46]">Latest</span>
+                          )}
+                        </div>
                       </div>
 
                       {sortedVersions.length === 0 ? (
