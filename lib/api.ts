@@ -60,6 +60,28 @@ export async function fetchReviewQueuePolicy(token: string) {
   return res.json();
 }
 
+export async function updateReviewQueuePolicy(
+  token: string,
+  payload: {
+    at_risk_hours?: number;
+    breach_hours?: number;
+    critical_hours?: number;
+    cooldown_critical_hours?: number;
+    cooldown_breach_hours?: number;
+    cooldown_at_risk_hours?: number;
+    cooldown_default_hours?: number;
+  }
+) {
+  const res = await fetch(`${API}/api/review/queues/policy`, {
+    method: "PUT",
+    headers: headers(token),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data;
+}
+
 export async function escalateReviewQueue(
   token: string,
   payload: {
@@ -96,6 +118,13 @@ export async function upsertReviewAssignment(
   const data = await res.json().catch(() => null);
   if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
   return data;
+}
+
+export async function fetchAssetReviewHistory(token: string, assetId: string) {
+  const res = await fetch(`${API}/api/assets/${assetId}/review-history`, { headers: headers(token) });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.events || [];
 }
 
 export async function scoreAssetRisk(

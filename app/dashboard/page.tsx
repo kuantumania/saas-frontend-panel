@@ -234,6 +234,18 @@ export default function DashboardPage() {
   const [isEscalatingQueue, setIsEscalatingQueue] = useState(false);
   const [isSlaSweeping, setIsSlaSweeping] = useState(false);
   const [showQueueGlossary, setShowQueueGlossary] = useState(false);
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
+  const [queueCooldown, setQueueCooldown] = useState<any>(null);
+  const [policyDraft, setPolicyDraft] = useState({
+    at_risk_hours: 8,
+    breach_hours: 24,
+    critical_hours: 48,
+    cooldown_critical_hours: 2,
+    cooldown_breach_hours: 6,
+    cooldown_at_risk_hours: 12,
+    cooldown_default_hours: 6,
+  });
+  const [savingPolicy, setSavingPolicy] = useState(false);
   const [assigningAsset, setAssigningAsset] = useState<any>(null);
   const [assignUserId, setAssignUserId] = useState("");
   const [assignDueAt, setAssignDueAt] = useState("");
@@ -245,6 +257,7 @@ export default function DashboardPage() {
   const [queuePolicy, setQueuePolicy] = useState<any>(null);
   const [imageInspectorTab, setImageInspectorTab] = useState<"inspect" | "compare" | "annotate">("inspect");
   const [annotationRefreshTick, setAnnotationRefreshTick] = useState(0);
+  const [reviewHistory, setReviewHistory] = useState<any[]>([]);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const searchTimeout = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -329,6 +342,18 @@ export default function DashboardPage() {
         setPendingAssets(p);
         setReviewQueue(q || []);
         setQueuePolicy(qp?.policy || null);
+        setQueueCooldown(qp?.cooldown || null);
+        if (qp?.policy || qp?.cooldown) {
+          setPolicyDraft({
+            at_risk_hours: Number(qp?.policy?.at_risk_hours ?? 8),
+            breach_hours: Number(qp?.policy?.breach_hours ?? 24),
+            critical_hours: Number(qp?.policy?.critical_hours ?? 48),
+            cooldown_critical_hours: Number(qp?.cooldown?.critical ?? 2),
+            cooldown_breach_hours: Number(qp?.cooldown?.breach ?? 6),
+            cooldown_at_risk_hours: Number(qp?.cooldown?.at_risk ?? 12),
+            cooldown_default_hours: Number(qp?.cooldown?.default ?? 6),
+          });
+        }
         setQueueInsights(qi || null);
         setLibraryAssets(l.assets || []);
         setLibraryPagination(l.pagination || {});
@@ -354,6 +379,7 @@ export default function DashboardPage() {
         setPendingAssets([]);
         setReviewQueue([]);
         setQueuePolicy(null);
+        setQueueCooldown(null);
         setQueueInsights(null);
         setMembers([]);
         setBilling(null);
@@ -455,6 +481,28 @@ export default function DashboardPage() {
       return;
     }
     setToast(`SLA sweep: escalated ${res.escalated_count}, rerouted ${res.rerouted_count}`);
+    await loadAll();
+  };
+
+  const handleSavePolicy = async () => {
+    if (!token) return;
+    setSavingPolicy(true);
+    const res = await api.updateReviewQueuePolicy(token, {
+      at_risk_hours: Number(policyDraft.at_risk_hours),
+      breach_hours: Number(policyDraft.breach_hours),
+      critical_hours: Number(policyDraft.critical_hours),
+      cooldown_critical_hours: Number(policyDraft.cooldown_critical_hours),
+      cooldown_breach_hours: Number(policyDraft.cooldown_breach_hours),
+      cooldown_at_risk_hours: Number(policyDraft.cooldown_at_risk_hours),
+      cooldown_default_hours: Number(policyDraft.cooldown_default_hours),
+    });
+    setSavingPolicy(false);
+    if ((res as any)?.error) {
+      setToast(`Policy save failed: ${(res as any).error}`);
+      return;
+    }
+    setShowPolicyModal(false);
+    setToast("Queue policy updated");
     await loadAll();
   };
 
@@ -571,12 +619,14 @@ export default function DashboardPage() {
     setInspectAsset(asset);
     setImageInspectorTab("inspect");
     setMetaLoading(true);
-    const [metaData, versions] = await Promise.all([
+    const [metaData, versions, history] = await Promise.all([
       api.fetchAssetMetadata(token, asset.id),
       api.fetchAssetVersions(token, asset.id),
+      api.fetchAssetReviewHistory(token, asset.id),
     ]);
     setAssetMeta(metaData);
     setAssetVersions(Array.isArray(versions) ? versions : []);
+    setReviewHistory(Array.isArray(history) ? history : []);
     setMetaLoading(false);
   };
 
@@ -1031,6 +1081,9 @@ export default function DashboardPage() {
           <p className="text-[10px] text-[#52525B] mt-2">
             SLA Policy: At Risk {queuePolicy?.at_risk_hours ?? 8}h · Breach {queuePolicy?.breach_hours ?? 24}h · Critical {queuePolicy?.critical_hours ?? 48}h
           </p>
+          <p className="text-[10px] text-[#52525B] mt-1">
+            Cooldown: Critical {queueCooldown?.critical ?? 2}h · Breach {queueCooldown?.breach ?? 6}h · At Risk {queueCooldown?.at_risk ?? 12}h
+          </p>
         </section>
 
         {/* ── METRICS ROW ────────────────────────── */}
@@ -1260,6 +1313,12 @@ export default function DashboardPage() {
                 }`}
               >
                 {isSlaSweeping ? "Sweeping..." : "SLA Sweep"}
+              </button>
+              <button
+                onClick={() => setShowPolicyModal(true)}
+                className="px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wide bg-white/[0.04] text-[#A1A1AA] ring-1 ring-white/[0.08] hover:bg-white/[0.08] hover:text-[#EDEDED] transition-colors"
+              >
+                Edit Policy
               </button>
               {(["all", "critical", "breach", "at_risk", "healthy"] as const).map((f) => (
                 <button
@@ -2058,6 +2117,98 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
+      {/* ── QUEUE POLICY MODAL ───────────────────── */}
+      <AnimatePresence>
+        {showPolicyModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowPolicyModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-lg rounded-xl bg-[#121212] border border-[#27272A] p-6 shadow-2xl shadow-black/50"
+            >
+              <h3 className="text-sm font-semibold text-[#EDEDED] mb-1">Queue SLA Policy</h3>
+              <p className="text-xs text-[#52525B] mb-4">Set thresholds and escalation cooldowns for this studio.</p>
+
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <label className="text-[10px] text-[#71717A]">
+                  At Risk (h)
+                  <input type="number" min={1} value={policyDraft.at_risk_hours}
+                    onChange={(e) => setPolicyDraft((p) => ({ ...p, at_risk_hours: Number(e.target.value || 1) }))}
+                    className="mt-1 w-full h-9 px-2 rounded bg-[#0A0A0A] border border-[#27272A] text-sm text-[#EDEDED]" />
+                </label>
+                <label className="text-[10px] text-[#71717A]">
+                  Breach (h)
+                  <input type="number" min={1} value={policyDraft.breach_hours}
+                    onChange={(e) => setPolicyDraft((p) => ({ ...p, breach_hours: Number(e.target.value || 1) }))}
+                    className="mt-1 w-full h-9 px-2 rounded bg-[#0A0A0A] border border-[#27272A] text-sm text-[#EDEDED]" />
+                </label>
+                <label className="text-[10px] text-[#71717A]">
+                  Critical (h)
+                  <input type="number" min={1} value={policyDraft.critical_hours}
+                    onChange={(e) => setPolicyDraft((p) => ({ ...p, critical_hours: Number(e.target.value || 1) }))}
+                    className="mt-1 w-full h-9 px-2 rounded bg-[#0A0A0A] border border-[#27272A] text-sm text-[#EDEDED]" />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-4 gap-3">
+                <label className="text-[10px] text-[#71717A]">
+                  CD Critical
+                  <input type="number" min={1} value={policyDraft.cooldown_critical_hours}
+                    onChange={(e) => setPolicyDraft((p) => ({ ...p, cooldown_critical_hours: Number(e.target.value || 1) }))}
+                    className="mt-1 w-full h-9 px-2 rounded bg-[#0A0A0A] border border-[#27272A] text-sm text-[#EDEDED]" />
+                </label>
+                <label className="text-[10px] text-[#71717A]">
+                  CD Breach
+                  <input type="number" min={1} value={policyDraft.cooldown_breach_hours}
+                    onChange={(e) => setPolicyDraft((p) => ({ ...p, cooldown_breach_hours: Number(e.target.value || 1) }))}
+                    className="mt-1 w-full h-9 px-2 rounded bg-[#0A0A0A] border border-[#27272A] text-sm text-[#EDEDED]" />
+                </label>
+                <label className="text-[10px] text-[#71717A]">
+                  CD At Risk
+                  <input type="number" min={1} value={policyDraft.cooldown_at_risk_hours}
+                    onChange={(e) => setPolicyDraft((p) => ({ ...p, cooldown_at_risk_hours: Number(e.target.value || 1) }))}
+                    className="mt-1 w-full h-9 px-2 rounded bg-[#0A0A0A] border border-[#27272A] text-sm text-[#EDEDED]" />
+                </label>
+                <label className="text-[10px] text-[#71717A]">
+                  CD Default
+                  <input type="number" min={1} value={policyDraft.cooldown_default_hours}
+                    onChange={(e) => setPolicyDraft((p) => ({ ...p, cooldown_default_hours: Number(e.target.value || 1) }))}
+                    className="mt-1 w-full h-9 px-2 rounded bg-[#0A0A0A] border border-[#27272A] text-sm text-[#EDEDED]" />
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 mt-5">
+                <button
+                  onClick={() => setShowPolicyModal(false)}
+                  className="px-3 py-1.5 rounded-md text-xs text-[#71717A] hover:text-[#A1A1AA] hover:bg-white/[0.04] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSavePolicy}
+                  disabled={savingPolicy}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    savingPolicy
+                      ? "bg-white/[0.04] text-[#52525B] cursor-not-allowed"
+                      : "bg-blue-500/10 text-blue-300 ring-1 ring-blue-500/20 hover:bg-blue-500/20"
+                  }`}
+                >
+                  {savingPolicy ? "Saving..." : "Save Policy"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── FAZ 10: ASSET INSPECTOR MODAL ────────── */}
       <AnimatePresence>
         {inspectAsset && (
@@ -2066,7 +2217,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setImageInspectorTab("inspect"); }}
+            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setImageInspectorTab("inspect"); }}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -2081,7 +2232,7 @@ export default function DashboardPage() {
                   <Cpu className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
                   <span className="text-sm font-semibold text-[#EDEDED]">Asset Inspector</span>
                 </div>
-                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setImageInspectorTab("inspect"); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
+                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setImageInspectorTab("inspect"); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
                   <X className="w-4 h-4" strokeWidth={1.5} />
                 </button>
               </div>
@@ -2244,6 +2395,32 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     )}
+
+                    {/* Review Timeline */}
+                    <div className="mt-3">
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <Activity className="w-3.5 h-3.5 text-[#71717A]" strokeWidth={1.5} />
+                        <span className="text-[10px] font-semibold tracking-wider uppercase text-[#71717A]">Review Timeline</span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {reviewHistory.length === 0 ? (
+                          <div className="px-3 py-2 rounded-lg text-xs bg-white/[0.02] text-[#52525B] ring-1 ring-white/[0.06]">
+                            No review history yet.
+                          </div>
+                        ) : (
+                          reviewHistory.slice(0, 8).map((ev: any) => (
+                            <div key={ev.id} className="px-3 py-2 rounded-lg text-xs bg-white/[0.02] ring-1 ring-white/[0.06]">
+                              <p className="text-[#A1A1AA]">
+                                <span className="text-[#EDEDED] font-medium">{ev.user_name || "System"}</span>{" "}
+                                {activityVerb(ev.action)}{" "}
+                                <span className="text-[#71717A]">{ev.metadata?.filename || inspectAsset?.filename}</span>
+                              </p>
+                              <p className="text-[10px] text-[#52525B] mt-0.5">{timeAgo(ev.created_at)}</p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-8 text-center">
