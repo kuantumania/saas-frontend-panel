@@ -1040,10 +1040,20 @@ export default function DashboardPage() {
     const fromMeta = assetMeta?.metadata?.active_version_asset_id || inspectAsset?.metadata?.active_version_asset_id;
     return fromMeta ? String(fromMeta) : null;
   })();
-  const unityCategory = unityCategoryForRole(inspectAsset?.uploader_role || inspectAsset?.uploaderRole || "");
-  const unityTargetPath = inspectAsset?.filename
+  const unityContractAsset = (() => {
+    if (!inspectAsset) return null;
+    const byGuid = (unityActiveAssets || []).find((x: any) => String(x?.guid) === String(inspectAsset.id));
+    if (byGuid) return byGuid;
+    if (activeVersionId) {
+      const byActive = (unityActiveAssets || []).find((x: any) => String(x?.active_version_asset_id || "") === String(activeVersionId));
+      if (byActive) return byActive;
+    }
+    return null;
+  })();
+  const unityCategory = String(unityContractAsset?.unity_category || unityContractAsset?.category || unityCategoryForRole(inspectAsset?.uploader_role || inspectAsset?.uploaderRole || ""));
+  const unityTargetPath = String(unityContractAsset?.unity_target_path || (inspectAsset?.filename
     ? `Assets/${unityCategory}/${inspectAsset.filename}`
-    : `Assets/${unityCategory}`;
+    : `Assets/${unityCategory}`));
   const lineageIndex = sortedVersions.findIndex((v: any) => String(v?.id) === String(inspectAsset?.id));
   const lineagePrev = lineageIndex >= 0 ? sortedVersions[lineageIndex + 1] : null;
   const lineageNext = lineageIndex >= 0 ? sortedVersions[lineageIndex - 1] : null;
