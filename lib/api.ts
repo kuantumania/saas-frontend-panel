@@ -62,7 +62,16 @@ export async function fetchReviewQueuePolicy(token: string) {
 
 export async function escalateReviewQueue(
   token: string,
-  payload: { limit?: number; execute?: boolean; include_at_risk?: boolean; cooldown_hours?: number } = {}
+  payload: {
+    limit?: number;
+    execute?: boolean;
+    include_at_risk?: boolean;
+    include_owner_overdue?: boolean;
+    include_owner_due_soon?: boolean;
+    auto_reroute_overdue?: boolean;
+    reroute_due_hours?: number;
+    cooldown_hours?: number;
+  } = {}
 ) {
   const res = await fetch(`${API}/api/review/queues/escalate`, {
     method: "POST",

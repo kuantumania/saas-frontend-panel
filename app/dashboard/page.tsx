@@ -232,6 +232,7 @@ export default function DashboardPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isAutoRouting, setIsAutoRouting] = useState(false);
   const [isEscalatingQueue, setIsEscalatingQueue] = useState(false);
+  const [isSlaSweeping, setIsSlaSweeping] = useState(false);
   const [showQueueGlossary, setShowQueueGlossary] = useState(false);
   const [assigningAsset, setAssigningAsset] = useState<any>(null);
   const [assignUserId, setAssignUserId] = useState("");
@@ -433,6 +434,27 @@ export default function DashboardPage() {
       return;
     }
     setToast(`Escalated ${res.escalated_count}/${res.matched} items`);
+    await loadAll();
+  };
+
+  const handleSlaSweep = async () => {
+    if (!token) return;
+    setIsSlaSweeping(true);
+    const res = await api.escalateReviewQueue(token, {
+      execute: true,
+      include_at_risk: true,
+      include_owner_overdue: true,
+      include_owner_due_soon: true,
+      auto_reroute_overdue: true,
+      reroute_due_hours: 8,
+      limit: 15,
+    });
+    setIsSlaSweeping(false);
+    if ((res as any)?.error) {
+      setToast(`SLA sweep failed: ${(res as any).error}`);
+      return;
+    }
+    setToast(`SLA sweep: escalated ${res.escalated_count}, rerouted ${res.rerouted_count}`);
     await loadAll();
   };
 
@@ -1228,6 +1250,17 @@ export default function DashboardPage() {
               >
                 {isEscalatingQueue ? "Escalating..." : "Run Escalation"}
               </button>
+              <button
+                onClick={handleSlaSweep}
+                disabled={isSlaSweeping || reviewQueue.length === 0}
+                className={`px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wide transition-colors ${
+                  isSlaSweeping || reviewQueue.length === 0
+                    ? "bg-white/[0.04] text-[#52525B] cursor-not-allowed"
+                    : "bg-fuchsia-500/12 text-fuchsia-300 ring-1 ring-fuchsia-500/30 hover:bg-fuchsia-500/20"
+                }`}
+              >
+                {isSlaSweeping ? "Sweeping..." : "SLA Sweep"}
+              </button>
               {(["all", "critical", "breach", "at_risk", "healthy"] as const).map((f) => (
                 <button
                   key={f}
@@ -1290,6 +1323,9 @@ export default function DashboardPage() {
                       </p>
                       <p className="text-[10px] text-[#71717A] mt-1">
                         Owner SLA: `Unassigned`, `No Due Date`, `On Track`, `Due Soon`, `Owner Overdue`.
+                      </p>
+                      <p className="text-[10px] text-[#71717A] mt-1">
+                        `SLA Sweep`: owner overdue item'larda otomatik reroute + escalation tetikler.
                       </p>
                     </div>
                   </div>
