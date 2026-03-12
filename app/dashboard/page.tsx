@@ -46,6 +46,10 @@ function slaState(d?: string): { label: string; cls: string } {
   return { label: "Healthy", cls: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" };
 }
 
+function clamp01(n: number) {
+  return Math.max(0, Math.min(1, n));
+}
+
 function fileIcon(type?: string) {
   if (!type) return <FileText className="w-4 h-4" strokeWidth={1.5} />;
   if (type.includes("image")) return <Image className="w-4 h-4" strokeWidth={1.5} />;
@@ -175,6 +179,8 @@ export default function DashboardPage() {
   const [showInviteMenu, setShowInviteMenu] = useState(false);
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [queueFilter, setQueueFilter] = useState<"all" | "breach" | "at_risk" | "healthy">("all");
+  const [annotationRefreshTick, setAnnotationRefreshTick] = useState(0);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const searchTimeout = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -539,6 +545,22 @@ export default function DashboardPage() {
     }
     setToast("Sent to review");
     await loadLibrary();
+  };
+
+  const handleCreateAnnotationFromCompare = async (payload: { x: number; y: number; text: string }) => {
+    if (!token || !inspectAsset?.id) return;
+    const created = await api.createAssetAnnotation(token, inspectAsset.id, {
+      x: clamp01(payload.x),
+      y: clamp01(payload.y),
+      text: payload.text,
+      version_asset_id: compareAsset?.id,
+    });
+    if ((created as any)?.error) {
+      setToast(`Annotation failed: ${(created as any).error}`);
+      return;
+    }
+    setAnnotationRefreshTick((v) => v + 1);
+    setToast("Annotation created from compare");
   };
 
   // ═══════════════════════════════════════════════════
@@ -976,6 +998,82 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+          </div>
+        </section>
+
+        <section className="mb-10">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-[#F59E0B]" strokeWidth={1.5} />
+              <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Operational Queue</h2>
+              <span className="text-xs text-[#52525B]">{reviewQueue.length}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              {(["all", "breach", "at_risk", "healthy"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setQueueFilter(f)}
+                  className={`px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wide transition-colors ${
+                    queueFilter === f
+                      ? "bg-white/[0.08] text-[#EDEDED]"
+                      : "text-[#52525B] hover:text-[#A1A1AA] hover:bg-white/[0.03]"
+                  }`}
+                >
+                  {f === "all" ? "All" : f === "at_risk" ? "At Risk" : f}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] overflow-hidden">
+            <div className="grid grid-cols-[1fr_90px_70px_170px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] text-[10px] font-semibold tracking-[0.1em] uppercase text-[#3F3F46]">
+              <span>Asset</span>
+              <span>Priority</span>
+              <span>SLA</span>
+              <span>Action</span>
+            </div>
+            {reviewQueue
+              .filter((q: any) => queueFilter === "all" ? true : q.sla_state === queueFilter)
+              .slice(0, 12)
+              .map((q: any) => {
+                const sla = q.sla_state
+                  ? {
+                      label: q.sla_state === "breach" ? "Breach" : q.sla_state === "at_risk" ? "At Risk" : "Healthy",
+                      cls: q.sla_state === "breach"
+                        ? "bg-rose-500/10 text-rose-400 ring-rose-500/20"
+                        : q.sla_state === "at_risk"
+                          ? "bg-amber-500/10 text-amber-400 ring-amber-500/20"
+                          : "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
+                    }
+                  : slaState(q.created_at);
+                return (
+                  <div key={`queue-${q.id}`} className="grid grid-cols-[1fr_90px_70px_170px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] last:border-0 items-center hover:bg-white/[0.02]">
+                    <button onClick={() => openInspector(q)} className="text-left min-w-0">
+                      <p className="text-sm font-medium text-[#EDEDED] truncate">{q.filename}</p>
+                      <p className="text-[10px] text-[#52525B]">{q.uploader_name || "Unknown"} · {q.age_hours?.toFixed?.(1) || ageHours(q.created_at).toFixed(1)}h</p>
+                    </button>
+                    <span className="text-xs font-semibold text-[#60A5FA]">P{q.priority_score ?? "—"}</span>
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ring-1 w-fit ${sla.cls}`}>{sla.label}</span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleApprove(q.id)}
+                        className="px-2.5 py-1 rounded text-[10px] bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => { setRejectingId(q.id); setRejectReason(""); }}
+                        className="px-2.5 py-1 rounded text-[10px] bg-rose-500/10 text-rose-400 ring-1 ring-rose-500/20 hover:bg-rose-500/20 transition-colors"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            {reviewQueue.filter((q: any) => queueFilter === "all" ? true : q.sla_state === queueFilter).length === 0 && (
+              <div className="py-10 text-center text-xs text-[#52525B]">No queue items for this filter.</div>
+            )}
           </div>
         </section>
 
@@ -1626,6 +1724,8 @@ export default function DashboardPage() {
                         afterUrl={inspectAsset.preview_url}
                         beforeLabel={compareAsset.filename || "Previous"}
                         afterLabel={inspectAsset.filename || "Current"}
+                        canCreateAnnotation={canManageAnnotations}
+                        onCreateAnnotation={handleCreateAnnotationFromCompare}
                       />
                     </div>
                   ) : (
@@ -1640,6 +1740,7 @@ export default function DashboardPage() {
                       token={token}
                       canCreate={canManageAnnotations}
                       canModerate={canManageAnnotations}
+                      refreshKey={annotationRefreshTick}
                     />
                   </div>
                 </div>
@@ -1841,16 +1942,22 @@ function VersionComparePanel({
   afterUrl,
   beforeLabel,
   afterLabel,
+  canCreateAnnotation,
+  onCreateAnnotation,
 }: {
   beforeUrl: string;
   afterUrl: string;
   beforeLabel: string;
   afterLabel: string;
+  canCreateAnnotation?: boolean;
+  onCreateAnnotation?: (payload: { x: number; y: number; text: string }) => void | Promise<void>;
 }) {
   const [split, setSplit] = useState(50);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [heatmapUrl, setHeatmapUrl] = useState<string | null>(null);
   const [diffRatio, setDiffRatio] = useState<number | null>(null);
+  const [annotateMode, setAnnotateMode] = useState(false);
+  const [annotateText, setAnnotateText] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -1930,6 +2037,18 @@ function VersionComparePanel({
       <div className="flex items-center justify-between mb-2">
         <p className="text-[11px] font-semibold text-[#A1A1AA]">Version Compare (MVP)</p>
         <div className="flex items-center gap-2">
+          {canCreateAnnotation && (
+            <button
+              onClick={() => setAnnotateMode((v) => !v)}
+              className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide border transition-colors ${
+                annotateMode
+                  ? "bg-[#3B82F6]/15 text-[#60A5FA] border-[#3B82F6]/30"
+                  : "bg-[#121212] text-[#71717A] border-[#27272A] hover:text-[#A1A1AA]"
+              }`}
+            >
+              Pin from Diff
+            </button>
+          )}
           <button
             onClick={() => setShowHeatmap((v) => !v)}
             className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide border transition-colors ${
@@ -1943,21 +2062,45 @@ function VersionComparePanel({
           <p className="text-[10px] text-[#52525B]">{showHeatmap ? (diffRatio !== null ? `${(diffRatio * 100).toFixed(1)}% changed` : "analyzing") : `${split}%`}</p>
         </div>
       </div>
+      {annotateMode && canCreateAnnotation && (
+        <input
+          value={annotateText}
+          onChange={(e) => setAnnotateText(e.target.value)}
+          placeholder="Annotation note (click compare surface to place)"
+          className="w-full mb-2 h-8 px-2 rounded-md bg-[#121212] border border-[#27272A] text-xs text-[#EDEDED] placeholder:text-[#52525B] focus:border-[#3F3F46] focus:outline-none"
+        />
+      )}
       <div className="relative h-64 rounded-md border border-[#27272A] bg-[#121212] overflow-hidden">
-        <img src={beforeUrl} alt="before" className="absolute inset-0 w-full h-full object-contain" />
+        <img src={beforeUrl} alt="before" className="absolute inset-0 w-full h-full object-contain pointer-events-none" />
         {showHeatmap ? (
           heatmapUrl ? (
-            <img src={heatmapUrl} alt="diff-heatmap" className="absolute inset-0 w-full h-full object-contain" />
+            <img src={heatmapUrl} alt="diff-heatmap" className="absolute inset-0 w-full h-full object-contain pointer-events-none" />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-xs text-[#71717A]">Generating heatmap…</div>
           )
         ) : (
           <>
             <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${split}%` }}>
-              <img src={afterUrl} alt="after" className="absolute inset-0 w-full h-full object-contain" />
+              <img src={afterUrl} alt="after" className="absolute inset-0 w-full h-full object-contain pointer-events-none" />
             </div>
             <div className="absolute inset-y-0 w-px bg-white/70" style={{ left: `${split}%` }} />
           </>
+        )}
+        {annotateMode && canCreateAnnotation && (
+          <button
+            onClick={(e) => {
+              if (!annotateText.trim() || !onCreateAnnotation) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              if (rect.width <= 0 || rect.height <= 0) return;
+              const x = clamp01((e.clientX - rect.left) / rect.width);
+              const y = clamp01((e.clientY - rect.top) / rect.height);
+              onCreateAnnotation({ x, y, text: annotateText.trim() });
+              setAnnotateText("");
+              setAnnotateMode(false);
+            }}
+            className="absolute inset-0 cursor-crosshair"
+            aria-label="Create annotation from compare"
+          />
         )}
         <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/60 text-[9px] text-[#EDEDED] border border-white/10" title={beforeLabel}>
           Before
@@ -1989,12 +2132,14 @@ function ImageAnnotationPanel({
   token,
   canCreate,
   canModerate,
+  refreshKey,
 }: {
   assetId: string;
   imageUrl: string;
   token: string;
   canCreate: boolean;
   canModerate: boolean;
+  refreshKey?: number;
 }) {
   const [annotations, setAnnotations] = useState<ImageAnnotation[]>([]);
   const [mode, setMode] = useState<"view" | "add">("view");
@@ -2017,7 +2162,7 @@ function ImageAnnotationPanel({
     setActiveId(null);
     setDraftText("");
     setMode("view");
-  }, [load]);
+  }, [load, refreshKey]);
 
   const onImageClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (mode !== "add" || !canCreate) return;
