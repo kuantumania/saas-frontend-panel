@@ -384,9 +384,27 @@ export async function rollbackVersion(token: string, assetId: string, versionAss
 }
 
 export async function fetchUnityActiveAssets(token: string) {
-  const res = await fetch(`${API}/api/unity/assets/active`, { headers: headers(token) });
+  const res = await fetch(`${API}/api/engine/assets/active?engine=unity`, { headers: headers(token) });
   const data = await res.json().catch(() => null);
   if (!res.ok) return { error: data?.error || `HTTP ${res.status}`, assets: [] };
+  return data;
+}
+
+export async function fetchUnitySyncHealth(token: string) {
+  const res = await fetch(`${API}/api/engine/sync-health?engine=unity`, { headers: headers(token) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    return {
+      error: data?.error || `HTTP ${res.status}`,
+      total_imports: 0,
+      success_count: 0,
+      failed_count: 0,
+      success_rate: 0,
+      avg_duration_ms: 0,
+      breakdown: [],
+      recent_events: [],
+    };
+  }
   return data;
 }
 

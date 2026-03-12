@@ -268,6 +268,8 @@ export default function DashboardPage() {
   const [unityActiveAssets, setUnityActiveAssets] = useState<any[]>([]);
   const [unityActiveLoading, setUnityActiveLoading] = useState(false);
   const [unityActiveError, setUnityActiveError] = useState<string | null>(null);
+  const [unitySyncHealth, setUnitySyncHealth] = useState<any>(null);
+  const [unitySyncHealthError, setUnitySyncHealthError] = useState<string | null>(null);
 
   // ── UI State ──
   const [loading, setLoading] = useState(true);
@@ -381,7 +383,7 @@ export default function DashboardPage() {
     try {
       const isLeadRole = (sessionUser?.role || "").toLowerCase() === "lead";
       if (isLeadRole) {
-        const [s, p, q, qp, qi, l, m, a, n, b, r, fld, unityActive] = await Promise.all([
+        const [s, p, q, qp, qi, l, m, a, n, b, r, fld, unityActive, syncHealth] = await Promise.all([
           api.fetchStats(token),
           api.fetchPendingReview(token),
           api.fetchReviewQueue(token),
@@ -395,6 +397,7 @@ export default function DashboardPage() {
           api.fetchRules(token),
           api.fetchFolders(token),
           api.fetchUnityActiveAssets(token),
+          api.fetchUnitySyncHealth(token),
         ]);
         setStats(s);
         setPendingAssets(p);
@@ -429,12 +432,20 @@ export default function DashboardPage() {
           setUnityActiveAssets((unityActive as any)?.assets || []);
           setUnityActiveError(null);
         }
+        if ((syncHealth as any)?.error) {
+          setUnitySyncHealth(null);
+          setUnitySyncHealthError((syncHealth as any).error || "Sync health unavailable");
+        } else {
+          setUnitySyncHealth(syncHealth || null);
+          setUnitySyncHealthError(null);
+        }
       } else {
-        const [l, a, n, unityActive] = await Promise.all([
+        const [l, a, n, unityActive, syncHealth] = await Promise.all([
           api.fetchLibrary(token, { page: 1, status: "all" }),
           api.fetchActivity(token),
           api.fetchNotifications(token),
           api.fetchUnityActiveAssets(token),
+          api.fetchUnitySyncHealth(token),
         ]);
         const assets = l.assets || [];
         setLibraryAssets(assets);
@@ -448,6 +459,13 @@ export default function DashboardPage() {
         } else {
           setUnityActiveAssets((unityActive as any)?.assets || []);
           setUnityActiveError(null);
+        }
+        if ((syncHealth as any)?.error) {
+          setUnitySyncHealth(null);
+          setUnitySyncHealthError((syncHealth as any).error || "Sync health unavailable");
+        } else {
+          setUnitySyncHealth(syncHealth || null);
+          setUnitySyncHealthError(null);
         }
         setPendingAssets([]);
         setReviewQueue([]);
@@ -2464,7 +2482,57 @@ export default function DashboardPage() {
                     ))}
                   </div>
                 )}
-                <p className="text-[9px] text-[#3F3F46] mt-2">Unity now pulls only active versions via `/api/unity/assets/active`.</p>
+                <p className="text-[9px] text-[#3F3F46] mt-2">Unity now pulls only active versions via `/api/engine/assets/active?engine=unity`.</p>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-[#1E1E1E]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] uppercase tracking-wider text-[#71717A]">Sync Health (24h)</span>
+                  <span className="text-[10px] text-[#3F3F46]">
+                    {unitySyncHealth ? `${Math.round((Number(unitySyncHealth.success_rate || 0)) * 100)}% success` : "n/a"}
+                  </span>
+                </div>
+                {unitySyncHealthError ? (
+                  <p className="text-[10px] text-rose-400">{unitySyncHealthError}</p>
+                ) : !unitySyncHealth ? (
+                  <div className="space-y-2">
+                    <div className="skeleton h-3 w-full rounded" />
+                    <div className="skeleton h-3 w-4/5 rounded" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      <div className="rounded-md border border-[#1E1E1E] bg-[#0A0A0A] px-2 py-1.5">
+                        <p className="text-[9px] uppercase text-[#52525B]">Total</p>
+                        <p className="text-[11px] text-[#EDEDED]">{unitySyncHealth.total_imports || 0}</p>
+                      </div>
+                      <div className="rounded-md border border-[#1E1E1E] bg-[#0A0A0A] px-2 py-1.5">
+                        <p className="text-[9px] uppercase text-[#52525B]">Success</p>
+                        <p className="text-[11px] text-emerald-300">{unitySyncHealth.success_count || 0}</p>
+                      </div>
+                      <div className="rounded-md border border-[#1E1E1E] bg-[#0A0A0A] px-2 py-1.5">
+                        <p className="text-[9px] uppercase text-[#52525B]">Failed</p>
+                        <p className="text-[11px] text-rose-300">{unitySyncHealth.failed_count || 0}</p>
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-[#52525B] mb-1">Avg duration: {Math.round(Number(unitySyncHealth.avg_duration_ms || 0))} ms</p>
+                    <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                      {((unitySyncHealth.breakdown || []) as any[])
+                        .filter((b: any) => b?.status === "failed")
+                        .sort((a: any, b: any) => Number(b.count || 0) - Number(a.count || 0))
+                        .slice(0, 4)
+                        .map((b: any) => (
+                          <div key={`${b.reason_code}-${b.status}`} className="flex items-center justify-between text-[9px]">
+                            <span className="text-[#71717A]">{b.reason_code}</span>
+                            <span className="text-[#A1A1AA]">{b.count}</span>
+                          </div>
+                        ))}
+                      {((unitySyncHealth.breakdown || []) as any[]).filter((b: any) => b?.status === "failed").length === 0 && (
+                        <p className="text-[9px] text-emerald-300">No failures in last 24h.</p>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
