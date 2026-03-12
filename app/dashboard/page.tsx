@@ -57,6 +57,21 @@ function formatTechValue(value: any, key?: string) {
   return String(value ?? "—");
 }
 
+function parseQaTaskStatus(text?: string): "open" | "in_progress" | "done" {
+  const upper = String(text || "").toUpperCase();
+  if (upper.includes("[DONE]")) return "done";
+  if (upper.includes("[IN_PROGRESS]")) return "in_progress";
+  return "open";
+}
+
+function cleanQaTaskText(text?: string) {
+  return String(text || "")
+    .replace(/\[TECH ART AI\]/gi, "")
+    .replace(/\[(OPEN|IN_PROGRESS|DONE)\]/gi, "")
+    .replace(/\[(MOBILE|PC|CONSOLE)\]/gi, "")
+    .trim();
+}
+
 function ageHours(d?: string) {
   if (!d) return 0;
   return Math.max(0, (Date.now() - new Date(d).getTime()) / 3600000);
@@ -232,6 +247,9 @@ export default function DashboardPage() {
   const [qaGuideLoading, setQaGuideLoading] = useState(false);
   const [qaProfile, setQaProfile] = useState<"mobile" | "pc" | "console">("pc");
   const [creatingQaTaskKey, setCreatingQaTaskKey] = useState<string | null>(null);
+  const [qaTasks, setQaTasks] = useState<any[]>([]);
+  const [qaTaskLoading, setQaTaskLoading] = useState(false);
+  const [updatingQaTaskId, setUpdatingQaTaskId] = useState<string | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
 
   // ── UI State ──
@@ -559,7 +577,7 @@ export default function DashboardPage() {
     const res = await api.createAssetAnnotation(token, inspectAsset.id, {
       x: 0.5,
       y: 0.5,
-      text: `[Tech Art AI][${qaProfile.toUpperCase()}] ${title}`,
+      text: `[Tech Art AI][OPEN][${qaProfile.toUpperCase()}] ${title}`,
     });
     setCreatingQaTaskKey(null);
     if ((res as any)?.error) {
@@ -571,6 +589,29 @@ export default function DashboardPage() {
       setImageInspectorTab("annotate");
     }
     setToast("Tech task added to annotations");
+  };
+
+  const handleUpdateQaTaskStatus = async (task: any, next: "open" | "in_progress" | "done") => {
+    if (!token || !inspectAsset?.id || !task?.id) return;
+    setUpdatingQaTaskId(task.id);
+    const statusTag = next === "in_progress" ? "IN_PROGRESS" : next.toUpperCase();
+    let text = String(task.raw_text || task.text || "");
+    if (/\[(OPEN|IN_PROGRESS|DONE)\]/i.test(text)) {
+      text = text.replace(/\[(OPEN|IN_PROGRESS|DONE)\]/i, `[${statusTag}]`);
+    } else {
+      text = `[${statusTag}] ${text}`;
+    }
+    const res = await api.updateAssetAnnotation(token, inspectAsset.id, task.id, {
+      text,
+      resolved: next === "done",
+    });
+    setUpdatingQaTaskId(null);
+    if ((res as any)?.error) {
+      setToast(`Task update failed: ${(res as any).error}`);
+      return;
+    }
+    setAnnotationRefreshTick((v) => v + 1);
+    setToast("Task status updated");
   };
 
   const handleInvite = async (role: string) => {
@@ -688,6 +729,38 @@ export default function DashboardPage() {
       alive = false;
     };
   }, [token, inspectAsset?.id, qaProfile]);
+
+  useEffect(() => {
+    if (!token || !inspectAsset?.id) return;
+    let alive = true;
+    setQaTaskLoading(true);
+    api.fetchAssetAnnotations(token, inspectAsset.id)
+      .then((rows) => {
+        if (!alive) return;
+        const list = (Array.isArray(rows) ? rows : [])
+          .map((a: any) => {
+            const raw = String(a?.text || "");
+            if (!raw.toUpperCase().includes("[TECH ART AI]")) return null;
+            return {
+              id: a.id,
+              raw_text: raw,
+              text: cleanQaTaskText(raw) || "Untitled task",
+              status: parseQaTaskStatus(raw),
+              created_at: a.created_at,
+              resolved: Boolean(a.resolved),
+              author_name: a.author_name || "System",
+            };
+          })
+          .filter(Boolean);
+        setQaTasks(list as any[]);
+      })
+      .finally(() => {
+        if (alive) setQaTaskLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token, inspectAsset?.id, annotationRefreshTick]);
 
   if (!token) return null;
   const inspectKind = inspectAsset ? inferAssetKind(inspectAsset, assetMeta?.metadata) : "other";
@@ -2285,7 +2358,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); setQaProfile("pc"); }}
+            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); setQaProfile("pc"); setQaTasks([]); setQaTaskLoading(false); setUpdatingQaTaskId(null); }}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -2300,7 +2373,7 @@ export default function DashboardPage() {
                   <Cpu className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
                   <span className="text-sm font-semibold text-[#EDEDED]">Asset Inspector</span>
                 </div>
-                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); setQaProfile("pc"); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
+                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); setQaProfile("pc"); setQaTasks([]); setQaTaskLoading(false); setUpdatingQaTaskId(null); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
                   <X className="w-4 h-4" strokeWidth={1.5} />
                 </button>
               </div>
@@ -2587,6 +2660,84 @@ export default function DashboardPage() {
                                         )}
                                       </div>
                                     ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {(qaTaskLoading || qaTasks.length > 0 || canManageAnnotations) && (
+                              <div className="mt-2 rounded-md bg-white/[0.02] p-2.5 ring-1 ring-white/[0.06]">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-[10px] uppercase tracking-wider text-[#71717A]">Tech Task Board</span>
+                                  <span className="text-[10px] text-[#52525B]">{qaTasks.length} tasks</span>
+                                </div>
+                                {qaTaskLoading ? (
+                                  <div className="space-y-1.5">
+                                    <div className="skeleton h-3 w-full rounded" />
+                                    <div className="skeleton h-3 w-4/5 rounded" />
+                                  </div>
+                                ) : qaTasks.length === 0 ? (
+                                  <p className="text-[11px] text-[#52525B]">No tech tasks yet. Create from checklist or failed checks.</p>
+                                ) : (
+                                  <div className="grid grid-cols-3 gap-2">
+                                    {([
+                                      { key: "open", label: "Open" },
+                                      { key: "in_progress", label: "In Progress" },
+                                      { key: "done", label: "Done" },
+                                    ] as const).map((col) => {
+                                      const items = qaTasks.filter((t: any) => t.status === col.key);
+                                      return (
+                                        <div key={`task-col-${col.key}`} className="rounded border border-[#27272A] bg-[#0A0A0A] p-2">
+                                          <div className="flex items-center justify-between mb-1.5">
+                                            <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wide">{col.label}</span>
+                                            <span className="text-[10px] text-[#52525B]">{items.length}</span>
+                                          </div>
+                                          <div className="space-y-1.5">
+                                            {items.length === 0 ? (
+                                              <p className="text-[10px] text-[#3F3F46]">No items</p>
+                                            ) : (
+                                              items.slice(0, 4).map((task: any) => (
+                                                <div key={`task-${task.id}`} className="rounded border border-white/[0.08] bg-white/[0.02] p-1.5">
+                                                  <p className="text-[10px] text-[#EDEDED] leading-relaxed">{task.text}</p>
+                                                  <div className="flex items-center justify-between mt-1">
+                                                    <span className="text-[9px] text-[#52525B]">{timeAgo(task.created_at)}</span>
+                                                    <div className="flex items-center gap-1">
+                                                      {col.key !== "open" && (
+                                                        <button
+                                                          onClick={() => handleUpdateQaTaskStatus(task, "open")}
+                                                          disabled={updatingQaTaskId === task.id}
+                                                          className="px-1 py-0.5 rounded text-[9px] bg-zinc-500/10 text-zinc-300 hover:bg-zinc-500/20 disabled:opacity-50"
+                                                        >
+                                                          Open
+                                                        </button>
+                                                      )}
+                                                      {col.key !== "in_progress" && (
+                                                        <button
+                                                          onClick={() => handleUpdateQaTaskStatus(task, "in_progress")}
+                                                          disabled={updatingQaTaskId === task.id}
+                                                          className="px-1 py-0.5 rounded text-[9px] bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 disabled:opacity-50"
+                                                        >
+                                                          WIP
+                                                        </button>
+                                                      )}
+                                                      {col.key !== "done" && (
+                                                        <button
+                                                          onClick={() => handleUpdateQaTaskStatus(task, "done")}
+                                                          disabled={updatingQaTaskId === task.id}
+                                                          className="px-1 py-0.5 rounded text-[9px] bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+                                                        >
+                                                          Done
+                                                        </button>
+                                                      )}
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              ))
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 )}
                               </div>
