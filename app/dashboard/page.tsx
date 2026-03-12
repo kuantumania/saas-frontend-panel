@@ -215,6 +215,8 @@ export default function DashboardPage() {
   const [inspectAsset, setInspectAsset] = useState<any>(null);
   const [assetMeta, setAssetMeta] = useState<any>(null);
   const [assetVersions, setAssetVersions] = useState<any[]>([]);
+  const [assetQaGuidance, setAssetQaGuidance] = useState<any>(null);
+  const [qaGuideLoading, setQaGuideLoading] = useState(false);
   const [metaLoading, setMetaLoading] = useState(false);
 
   // ── UI State ──
@@ -621,15 +623,19 @@ export default function DashboardPage() {
     setImageInspectorTab("inspect");
     setReviewHistoryFilter("all");
     setMetaLoading(true);
-    const [metaData, versions, history] = await Promise.all([
+    setQaGuideLoading(true);
+    const [metaData, versions, history, guidance] = await Promise.all([
       api.fetchAssetMetadata(token, asset.id),
       api.fetchAssetVersions(token, asset.id),
       api.fetchAssetReviewHistory(token, asset.id),
+      api.fetchAssetQaGuidance(token, asset.id),
     ]);
     setAssetMeta(metaData);
     setAssetVersions(Array.isArray(versions) ? versions : []);
     setReviewHistory(Array.isArray(history) ? history : []);
+    setAssetQaGuidance(guidance);
     setMetaLoading(false);
+    setQaGuideLoading(false);
   };
 
   if (!token) return null;
@@ -2228,7 +2234,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); }}
+            onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); }}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -2243,7 +2249,7 @@ export default function DashboardPage() {
                   <Cpu className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
                   <span className="text-sm font-semibold text-[#EDEDED]">Asset Inspector</span>
                 </div>
-                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
+                <button onClick={() => { setInspectAsset(null); setAssetMeta(null); setAssetVersions([]); setReviewHistory([]); setReviewHistoryFilter("all"); setImageInspectorTab("inspect"); setAssetQaGuidance(null); setQaGuideLoading(false); }} className="p-1.5 rounded-md hover:bg-white/[0.04] text-[#52525B] hover:text-[#A1A1AA] transition-colors">
                   <X className="w-4 h-4" strokeWidth={1.5} />
                 </button>
               </div>
@@ -2369,6 +2375,74 @@ export default function DashboardPage() {
                         </span>
                       )}
                     </div>
+
+                    {/* Tech Art AI v1 */}
+                    {(qaGuideLoading || assetQaGuidance?.guidance) && (
+                      <div className="rounded-xl border border-[#27272A] bg-[#0A0A0A] p-3">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-1.5">
+                            <Zap className="w-3.5 h-3.5 text-[#3B82F6]" strokeWidth={1.5} />
+                            <span className="text-[10px] font-semibold tracking-wider uppercase text-[#71717A]">Tech Art AI v1</span>
+                          </div>
+                          {assetQaGuidance?.guidance?.recommended_decision && (
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ring-1 ${
+                              assetQaGuidance.guidance.recommended_decision === "block_fix_first"
+                                ? "bg-rose-500/10 text-rose-300 ring-rose-500/20"
+                                : assetQaGuidance.guidance.recommended_decision === "review_with_caution"
+                                ? "bg-amber-500/10 text-amber-300 ring-amber-500/20"
+                                : "bg-emerald-500/10 text-emerald-300 ring-emerald-500/20"
+                            }`}>
+                              {assetQaGuidance.guidance.recommended_decision === "block_fix_first"
+                                ? "Block + Fix"
+                                : assetQaGuidance.guidance.recommended_decision === "review_with_caution"
+                                ? "Review Carefully"
+                                : "Ready"}
+                            </span>
+                          )}
+                        </div>
+                        {qaGuideLoading ? (
+                          <div className="space-y-2">
+                            <div className="skeleton h-3 w-full rounded" />
+                            <div className="skeleton h-3 w-3/4 rounded" />
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-xs text-[#A1A1AA] leading-relaxed">
+                              {assetQaGuidance?.guidance?.summary || "Guidance unavailable for this asset."}
+                            </p>
+
+                            {assetQaGuidance?.guidance?.reviewer_suggestion?.name && (
+                              <p className="text-[11px] text-[#71717A] mt-2">
+                                Suggested reviewer:{" "}
+                                <span className="text-[#EDEDED]">
+                                  {assetQaGuidance.guidance.reviewer_suggestion.name}
+                                </span>{" "}
+                                ({String(assetQaGuidance.guidance.reviewer_suggestion.role || "reviewer").replace(/_/g, " ")})
+                              </p>
+                            )}
+
+                            {Array.isArray(assetQaGuidance?.guidance?.checklist) && assetQaGuidance.guidance.checklist.length > 0 && (
+                              <div className="mt-2 grid grid-cols-1 gap-1.5">
+                                {assetQaGuidance.guidance.checklist.slice(0, 4).map((step: any, idx: number) => (
+                                  <div key={`qa-step-${step.id || idx}`} className="flex items-start gap-2 rounded-md bg-white/[0.02] px-2 py-1.5 ring-1 ring-white/[0.06]">
+                                    <span className={`mt-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded ${
+                                      step.priority === "high"
+                                        ? "bg-rose-500/10 text-rose-300"
+                                        : step.priority === "medium"
+                                        ? "bg-amber-500/10 text-amber-300"
+                                        : "bg-emerald-500/10 text-emerald-300"
+                                    }`}>
+                                      {String(step.priority || "low").toUpperCase()}
+                                    </span>
+                                    <p className="text-[11px] text-[#A1A1AA]">{step.title}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
 
                     {/* Metadata Grid */}
                     <div className="grid grid-cols-2 gap-x-6 gap-y-2">

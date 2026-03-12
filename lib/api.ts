@@ -127,6 +127,12 @@ export async function fetchAssetReviewHistory(token: string, assetId: string) {
   return data.events || [];
 }
 
+export async function fetchAssetQaGuidance(token: string, assetId: string) {
+  const res = await fetch(`${API}/api/assets/${assetId}/qa-guidance`, { headers: headers(token) });
+  if (!res.ok) return null;
+  return res.json();
+}
+
 export async function scoreAssetRisk(
   token: string,
   payload: { asset_id?: string; folder_id?: string; filename?: string; file_size_kb?: number; metadata?: Record<string, any> }
