@@ -41,7 +41,13 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/upload", label: "Upload", icon: FolderUp },
-  { href: "/dashboard/migration", label: "Import", icon: GitMerge, leadOnly: true, enterpriseOnly: true },
+  {
+    href: "/dashboard/migration",
+    label: "Import",
+    icon: GitMerge,
+    leadOnly: true,
+    enterpriseOnly: true,
+  },
   { href: "/dashboard/settings", label: "Settings", icon: Settings, leadOnly: true },
 ];
 
@@ -87,7 +93,8 @@ export default function DashboardNav({
 
           {/* Nav links */}
           <nav className="hidden md:flex items-center gap-1 mx-6">
-            {visibleNavItems.map(({ href, label, icon: Icon, enterpriseOnly }) => {
+            {visibleNavItems.map(
+              ({ href, label, icon: Icon, enterpriseOnly }) => {
               const isActive = pathname === href;
               return (
                 <a
@@ -102,27 +109,49 @@ export default function DashboardNav({
                   <Icon className="w-3.5 h-3.5" strokeWidth={1.5} />
                   {label}
                   {enterpriseOnly && (
-                    <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-purple-500/10 text-purple-400 ring-1 ring-purple-500/20 leading-none">
+                    <span
+                      className={[
+                        "text-[8px] font-semibold px-1 py-0.5 rounded bg-purple-500/10",
+                        "text-purple-400 ring-1 ring-purple-500/20 leading-none",
+                      ].join(" ")}
+                    >
                       ENT
                     </span>
                   )}
                 </a>
               );
-            })}
+              }
+            )}
           </nav>
 
           {/* Search */}
           {showSearch && onSearch && (
             <div className="flex-1 max-w-sm mx-4">
               <div className="relative group">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#52525B] group-focus-within:text-[#71717A] transition-colors" strokeWidth={1.5} />
+                <Search
+                  className={[
+                    "absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#52525B]",
+                    "group-focus-within:text-[#71717A] transition-colors",
+                  ].join(" ")}
+                  strokeWidth={1.5}
+                />
                 <input
                   type="text"
                   placeholder="Search assets..."
                   onChange={(e) => onSearch(e.target.value)}
-                  className="w-full h-8 pl-9 pr-10 rounded-lg bg-[#121212] border border-[#27272A] text-xs text-[#EDEDED] placeholder:text-[#52525B] focus:border-[#3F3F46] focus:ring-0 focus:outline-none transition-colors"
+                  className={[
+                    "w-full h-8 pl-9 pr-10 rounded-lg bg-[#121212] border border-[#27272A]",
+                    "text-xs text-[#EDEDED] placeholder:text-[#52525B]",
+                    "focus:border-[#3F3F46] focus:ring-0 focus:outline-none transition-colors",
+                  ].join(" ")}
                 />
-                <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-medium px-1 py-0.5 rounded bg-white/[0.06] text-[#52525B] border border-[#27272A]">
+                <kbd
+                  className={[
+                    "absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-medium",
+                    "px-1 py-0.5 rounded bg-white/[0.06] text-[#52525B]",
+                    "border border-[#27272A]",
+                  ].join(" ")}
+                >
                   /
                 </kbd>
               </div>
@@ -145,11 +174,21 @@ export default function DashboardNav({
 
               {/* Notification dropdown */}
               {showNotifs && (
-                <div className="absolute right-0 top-full mt-2 w-80 rounded-xl bg-[#121212] border border-[#27272A] shadow-2xl shadow-black/50 overflow-hidden z-50">
+                <div
+                  className={[
+                    "absolute right-0 top-full mt-2 w-80 rounded-xl bg-[#121212]",
+                    "border border-[#27272A] shadow-2xl shadow-black/50 overflow-hidden z-50",
+                  ].join(" ")}
+                >
                   <div className="flex items-center justify-between px-4 py-3 border-b border-[#1E1E1E]">
-                    <span className="text-xs font-semibold tracking-wider uppercase text-[#71717A]">Notifications</span>
+                    <span className="text-xs font-semibold tracking-wider uppercase text-[#71717A]">
+                      Notifications
+                    </span>
                     {unreadCount > 0 && (
-                      <button onClick={onMarkRead} className="text-[10px] font-medium text-[#3B82F6] hover:text-[#60A5FA] transition-colors">
+                      <button
+                        onClick={onMarkRead}
+                        className="text-[10px] font-medium text-[#3B82F6] hover:text-[#60A5FA] transition-colors"
+                      >
                         Mark all read
                       </button>
                     )}
@@ -161,10 +200,16 @@ export default function DashboardNav({
                       notifications.map((n: any) => (
                         <div
                           key={n.id}
-                          className={`px-4 py-3 border-b border-[#1E1E1E] last:border-0 hover:bg-white/[0.02] transition-colors ${!n.is_read ? "bg-[#3B82F6]/[0.03]" : ""}`}
+                          className={[
+                            "px-4 py-3 border-b border-[#1E1E1E] last:border-0",
+                            "hover:bg-white/[0.02] transition-colors",
+                            !n.is_read ? "bg-[#3B82F6]/[0.03]" : "",
+                          ].join(" ")}
                         >
                           <p className="text-xs text-[#EDEDED] leading-relaxed">{n.message}</p>
-                          <span className="text-[10px] text-[#52525B] mt-1 block">{timeAgo(n.created_at)}</span>
+                          <span className="text-[10px] text-[#52525B] mt-1 block">
+                            {timeAgo(n.created_at)}
+                          </span>
                         </div>
                       ))
                     )}
@@ -177,7 +222,10 @@ export default function DashboardNav({
             {pathname !== "/dashboard/upload" && (
               <a
                 href="/dashboard/upload"
-                className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-500 transition-colors"
+                className={[
+                  "flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white",
+                  "text-xs font-medium hover:bg-blue-500 transition-colors",
+                ].join(" ")}
               >
                 <Upload className="w-3.5 h-3.5" strokeWidth={2} />
                 Upload
@@ -199,7 +247,9 @@ export default function DashboardNav({
       </header>
 
       {/* Click outside to close notifs */}
-      {showNotifs && <div className="fixed inset-0 z-30" onClick={() => setShowNotifs(false)} />}
+      {showNotifs && (
+        <div className="fixed inset-0 z-30" onClick={() => setShowNotifs(false)} />
+      )}
     </>
   );
 }
