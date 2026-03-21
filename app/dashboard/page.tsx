@@ -16,6 +16,7 @@ import {
   AlertTriangle, Trash2, Plus, Info, Cpu, Zap, Play, Pause, Repeat, MapPin, Lock, Unlock,
 } from "lucide-react";
 import * as api from "@/lib/api";
+import DashboardNav from "@/components/DashboardNav";
 
 // ═══════════════════════════════════════════════════
 // HELPERS
@@ -1246,183 +1247,128 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#EDEDED] font-[family-name:var(--font-geist-sans)]">
-      {/* ── COMMAND HUB (Top Bar) ─────────────────── */}
-      <header className="sticky top-0 z-40 border-b border-[#1E1E1E] bg-[#0A0A0A]/80 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 h-14">
-
-          {/* Logo */}
-          <div className="flex items-center gap-2.5">
-            <Layers className="w-5 h-5 text-[#3B82F6]" strokeWidth={1.5} />
-            <span className="text-sm font-semibold tracking-tight text-[#EDEDED]">
-              {studio.name || "Studio"}
-            </span>
-          </div>
-
-          {/* Search */}
-          <div className="flex-1 max-w-md mx-8">
-            <div className="relative group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#52525B] group-focus-within:text-[#71717A] transition-colors" strokeWidth={1.5} />
-              <input
-                ref={searchRef}
-                type="text"
-                placeholder="Search assets..."
-                onChange={(e) => handleSearch(e.target.value)}
-                className="w-full h-9 pl-9 pr-14 rounded-lg bg-[#121212] border border-[#27272A] text-sm text-[#EDEDED] placeholder:text-[#52525B] focus:border-[#3F3F46] focus:ring-0 focus:outline-none transition-colors"
-              />
-              <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-white/[0.06] text-[#52525B] border border-[#27272A]">
-                ⌘K
-              </kbd>
-            </div>
-          </div>
-
-          {/* Right actions */}
-          <div className="flex items-center gap-1">
-            {/* Notifications */}
-            <div className="relative">
-              <button
-                onClick={() => setShowNotifs(!showNotifs)}
-                className="relative p-2 rounded-lg hover:bg-white/[0.04] transition-colors"
-              >
-                <Bell className="w-4 h-4 text-[#A1A1AA]" strokeWidth={1.5} />
-                {unreadCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#F43F5E] ring-2 ring-[#0A0A0A]" />
-                )}
-              </button>
-
-              {/* Notification Dropdown */}
-              <AnimatePresence>
-                {showNotifs && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 4, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 4, scale: 0.97 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-2 w-80 rounded-xl bg-[#121212] border border-[#27272A] shadow-2xl shadow-black/50 overflow-hidden z-50"
-                  >
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-[#1E1E1E]">
-                      <span className="text-xs font-semibold tracking-wider uppercase text-[#71717A]">Notifications</span>
-                      {unreadCount > 0 && (
-                        <button onClick={handleMarkRead} className="text-[10px] font-medium text-[#3B82F6] hover:text-[#60A5FA] transition-colors">
-                          Mark all read
-                        </button>
-                      )}
-                    </div>
-                    <div className="max-h-72 overflow-y-auto">
-                      {notifications.length === 0 ? (
-                        <p className="text-center text-xs text-[#52525B] py-8">No notifications</p>
-                      ) : (
-                        notifications.map((n: any) => (
-                          <div
-                            key={n.id}
-                            className={`px-4 py-3 border-b border-[#1E1E1E] last:border-0 hover:bg-white/[0.02] transition-colors ${!n.is_read ? "bg-[#3B82F6]/[0.03]" : ""}`}
-                          >
-                            <p className="text-xs text-[#EDEDED] leading-relaxed">{n.message}</p>
-                            <span className="text-[10px] text-[#52525B] mt-1 block">{timeAgo(n.created_at)}</span>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* Logout */}
-            <button
-              onClick={logout}
-              className="p-2 rounded-lg hover:bg-white/[0.04] transition-colors"
-              title="Logout"
-            >
-              <LogOut className="w-4 h-4 text-[#52525B]" strokeWidth={1.5} />
-            </button>
-
-            {/* Avatar */}
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#3B82F6] to-[#8B5CF6] flex items-center justify-center text-[10px] font-bold text-white ml-1">
-              {(studio.name || "S")[0].toUpperCase()}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Click outside to close notifs */}
-      {showNotifs && <div className="fixed inset-0 z-30" onClick={() => setShowNotifs(false)} />}
+      {/* ── SHARED NAV ─────────────────── */}
+      <DashboardNav
+        studioName={studio.name || "Studio"}
+        role={sessionUser?.role || "member"}
+        isEnterprise={billing?.plan?.startsWith('enterprise') || false}
+        onSearch={handleSearch}
+        showSearch={true}
+        notifications={notifications}
+        unreadCount={unreadCount}
+        onMarkRead={handleMarkRead}
+        onLogout={logout}
+      />
 
       {/* ── MAIN CONTENT ─────────────────────────── */}
       <main className="max-w-6xl mx-auto px-6 py-8">
         {!isLead ? (
           <>
-            <section className="grid grid-cols-3 gap-6 mb-10">
-              <div className="col-span-2 rounded-xl border border-[#1E1E1E] bg-[#121212] p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <Upload className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
-                  <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Upload Workspace</h2>
+            {/* ── Member Welcome Header ── */}
+            <section className="mb-8">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-xl font-bold tracking-tight text-[#EDEDED] mb-1">
+                    Welcome back, {memberName || "Member"}
+                  </h1>
+                  <p className="text-xs text-[#52525B]">
+                    {(sessionUser?.role || "member").replace(/_/g, " ")} &middot; {studio.slug || sessionUser?.workspace || "Studio"}
+                  </p>
                 </div>
-                <p className="text-xs text-[#52525B] mb-4">
-                  Drag & drop your file, then send it to review in one click.
-                </p>
-                <div
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDraggingUpload(true);
-                  }}
-                  onDragLeave={() => setIsDraggingUpload(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDraggingUpload(false);
-                    const file = e.dataTransfer.files?.[0];
-                    if (file) handleMemberUploadFile(file);
-                  }}
-                  className={`rounded-lg border border-dashed p-8 text-center transition-colors ${
-                    isDraggingUpload
-                      ? "border-[#3B82F6] bg-[#3B82F6]/10"
-                      : "border-[#27272A] bg-[#0A0A0A]"
-                  }`}
+                <a
+                  href="/dashboard/upload"
+                  className="flex items-center gap-2 h-9 px-4 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-500 transition-colors"
                 >
-                  <Upload className="w-6 h-6 text-[#52525B] mx-auto mb-2" strokeWidth={1.5} />
-                  <p className="text-sm text-[#A1A1AA]">Drop file here or</p>
-                  <button
-                    onClick={() => memberUploadInputRef.current?.click()}
-                    disabled={isUploading}
-                    className="mt-3 px-3 py-1.5 rounded-md text-xs font-medium bg-[#3B82F6]/15 text-[#60A5FA] ring-1 ring-[#3B82F6]/30 hover:bg-[#3B82F6]/25 transition-colors disabled:opacity-50"
-                  >
-                    {isUploading ? "Uploading..." : "Choose File"}
-                  </button>
-                  <input
-                    ref={memberUploadInputRef}
-                    type="file"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleMemberUploadFile(file);
-                      e.currentTarget.value = "";
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="col-span-1 rounded-xl border border-[#1E1E1E] bg-[#121212] p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <Info className="w-4 h-4 text-[#71717A]" strokeWidth={1.5} />
-                  <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Session</h2>
-                </div>
-                <div className="space-y-2 text-xs">
-                  <p className="text-[#71717A]">Name: <span className="text-[#EDEDED]">{memberName || "Member"}</span></p>
-                  <p className="text-[#71717A]">Role: <span className="text-[#EDEDED]">{(sessionUser?.role || "member").replace(/_/g, " ")}</span></p>
-                  <p className="text-[#71717A]">Studio: <span className="text-[#EDEDED]">{studio.slug || sessionUser?.workspace || "—"}</span></p>
-                </div>
+                  <Upload className="w-3.5 h-3.5" strokeWidth={2} />
+                  Upload Assets
+                </a>
               </div>
             </section>
 
+            {/* ── Member Quick Stats ── */}
+            <section className="grid grid-cols-4 gap-3 mb-8 stagger">
+              {[
+                { label: "My Uploads", value: memberAssets.length, icon: Package, color: "text-blue-400", bg: "bg-blue-500/10" },
+                { label: "In Review", value: memberAssets.filter((a: any) => a.status === "in_review").length, icon: Clock, color: "text-amber-400", bg: "bg-amber-500/10" },
+                { label: "Approved", value: memberAssets.filter((a: any) => a.status === "approved").length, icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-500/10" },
+                { label: "Staging", value: memberAssets.filter((a: any) => a.status === "staging").length, icon: Layers, color: "text-purple-400", bg: "bg-purple-500/10" },
+              ].map(({ label, value, icon: Icon, color, bg }) => (
+                <div key={label} className="rounded-xl border border-[#1E1E1E] bg-[#121212] p-4 hover:border-[#27272A] transition-all">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[9px] font-semibold tracking-[0.12em] uppercase text-[#3F3F46]">{label}</span>
+                    <div className={`w-7 h-7 rounded-lg ${bg} flex items-center justify-center`}>
+                      <Icon className={`w-3.5 h-3.5 ${color}`} strokeWidth={1.5} />
+                    </div>
+                  </div>
+                  <span className="text-2xl font-bold tracking-tight text-[#EDEDED]">{value}</span>
+                </div>
+              ))}
+            </section>
+
+            {/* ── Quick Upload Zone ── */}
+            <section className="mb-8">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDraggingUpload(true);
+                }}
+                onDragLeave={() => setIsDraggingUpload(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDraggingUpload(false);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) handleMemberUploadFile(file);
+                }}
+                className={`rounded-2xl border-2 border-dashed p-10 text-center transition-all ${
+                  isDraggingUpload
+                    ? "border-blue-500 bg-blue-500/5 scale-[1.005]"
+                    : "border-[#27272A] bg-[#121212] hover:border-[#3F3F46] hover:bg-[#141414]"
+                }`}
+              >
+                <div className={`w-12 h-12 rounded-2xl mx-auto mb-3 flex items-center justify-center transition-colors ${
+                  isDraggingUpload ? "bg-blue-500/10" : "bg-white/[0.04]"
+                }`}>
+                  <Upload className={`w-5 h-5 transition-colors ${isDraggingUpload ? "text-blue-400" : "text-[#52525B]"}`} strokeWidth={1.5} />
+                </div>
+                <p className="text-sm font-medium text-[#A1A1AA] mb-1">
+                  {isDraggingUpload ? "Drop to upload" : "Quick Upload"}
+                </p>
+                <p className="text-xs text-[#52525B] mb-3">Drag & drop a file or click to browse</p>
+                <button
+                  onClick={() => memberUploadInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="px-4 py-2 rounded-lg bg-white/[0.06] text-xs font-medium text-[#EDEDED] hover:bg-white/[0.1] disabled:opacity-50 transition-colors"
+                >
+                  {isUploading ? "Uploading..." : "Choose File"}
+                </button>
+                <input
+                  ref={memberUploadInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleMemberUploadFile(file);
+                    e.currentTarget.value = "";
+                  }}
+                />
+              </div>
+            </section>
+
+            {/* ── My Uploads Table ── */}
             <section className="mb-10">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <Folder className="w-4 h-4 text-[#71717A]" strokeWidth={1.5} />
                   <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">My Uploads</h2>
-                  <span className="text-xs text-[#52525B]">{memberAssets.length}</span>
+                  {memberAssets.length > 0 && (
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20">
+                      {memberAssets.length}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] overflow-hidden">
-                <div className="grid grid-cols-[40px_1fr_80px_90px_120px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] text-[10px] font-semibold tracking-[0.1em] uppercase text-[#3F3F46]">
+                <div className="grid grid-cols-[40px_1fr_80px_90px_120px] gap-3 px-5 py-2.5 border-b border-[#1E1E1E] bg-[#0A0A0A] text-[9px] font-semibold tracking-[0.12em] uppercase text-[#3F3F46]">
                   <span />
                   <span>Name</span>
                   <span>Size</span>
@@ -1430,18 +1376,20 @@ export default function DashboardPage() {
                   <span>Action</span>
                 </div>
                 {memberAssets.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-14 text-center">
-                    <Package className="w-8 h-8 text-[#27272A] mb-3" strokeWidth={1} />
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="w-12 h-12 rounded-2xl bg-white/[0.02] flex items-center justify-center mb-3">
+                      <Package className="w-6 h-6 text-[#27272A]" strokeWidth={1} />
+                    </div>
                     <p className="text-sm font-medium text-[#52525B]">No uploads yet</p>
-                    <p className="text-xs text-[#3F3F46] mt-1">Upload your first asset from the panel above</p>
+                    <p className="text-xs text-[#3F3F46] mt-1">Upload your first asset using the drop zone above</p>
                   </div>
                 ) : (
                   memberAssets.map((a: any) => {
                     const ext = (a.filename || "").split(".").pop()?.toLowerCase();
                     const isImg = ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext || "");
                     return (
-                      <div key={a.id} className="grid grid-cols-[40px_1fr_80px_90px_120px] gap-3 px-4 py-2.5 border-b border-[#1E1E1E] last:border-0 hover:bg-white/[0.02] transition-colors items-center">
-                        <div className="w-10 h-10 rounded-md bg-[#18181B] border border-[#27272A] overflow-hidden flex items-center justify-center">
+                      <div key={a.id} className="grid grid-cols-[40px_1fr_80px_90px_120px] gap-3 px-5 py-3 border-b border-[#1E1E1E]/50 last:border-0 hover:bg-white/[0.02] transition-colors items-center">
+                        <div className="w-10 h-10 rounded-lg bg-[#18181B] border border-[#27272A] overflow-hidden flex items-center justify-center">
                           {isImg && a.preview_url ? (
                             <img src={a.preview_url} alt="" className="w-full h-full object-cover" />
                           ) : (
@@ -1457,7 +1405,7 @@ export default function DashboardPage() {
                         {a.status === "staging" ? (
                           <button
                             onClick={() => handleMemberSubmitReview(a)}
-                            className="justify-self-start px-2.5 py-1 rounded-md text-[10px] font-medium bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20 hover:bg-amber-500/20 transition-colors"
+                            className="justify-self-start px-2.5 py-1.5 rounded-lg text-[10px] font-medium bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20 hover:bg-amber-500/20 transition-colors"
                           >
                             Submit Review
                           </button>
@@ -1473,83 +1421,107 @@ export default function DashboardPage() {
           </>
         ) : (
           <>
-        <section className="rounded-xl border border-[#1E1E1E] bg-[#121212] p-4 mb-6">
-          <div className="flex items-center justify-between mb-3">
+        {/* ── Lead Welcome Header ── */}
+        <section className="mb-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-[#EDEDED] mb-1">
+                Command Center
+              </h1>
+              <p className="text-xs text-[#52525B]">
+                {studio.name || "Studio"} &middot; Pipeline overview
+              </p>
+            </div>
             <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
-              <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Decision Cockpit</h2>
-            </div>
-            <span className="text-[10px] text-[#71717A]">Approve-to-Unity focus</span>
-          </div>
-          <div className="grid grid-cols-5 gap-3">
-            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Critical Lane</p>
-              <p className="text-lg font-semibold text-fuchsia-300">{cockpit.critical}</p>
-            </div>
-            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">SLA Breach</p>
-              <p className="text-lg font-semibold text-rose-400">{cockpit.overdue}</p>
-            </div>
-            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">At Risk</p>
-              <p className="text-lg font-semibold text-amber-400">{cockpit.atRisk}</p>
-            </div>
-            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Healthy Queue</p>
-              <p className="text-lg font-semibold text-emerald-400">{cockpit.healthy}</p>
-            </div>
-            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Median Queue Time</p>
-              <p className="text-lg font-semibold text-[#EDEDED]">{cockpit.medianReviewHours.toFixed(1)}h</p>
+              <a
+                href="/dashboard/upload"
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[#27272A] text-xs text-[#A1A1AA] hover:text-white hover:border-[#3F3F46] transition-colors"
+              >
+                <Upload className="w-3.5 h-3.5" strokeWidth={1.5} />
+                Upload
+              </a>
+              <a
+                href="/dashboard/migration"
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[#27272A] text-xs text-[#A1A1AA] hover:text-white hover:border-[#3F3F46] transition-colors"
+              >
+                <ArrowUpRight className="w-3.5 h-3.5" strokeWidth={1.5} />
+                Import
+              </a>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3 mt-3">
-            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">QA Blocked</p>
-              <p className="text-lg font-semibold text-rose-400">{qaGate.blocked}</p>
-            </div>
-            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">QA Risky</p>
-              <p className="text-lg font-semibold text-amber-400">{qaGate.risky}</p>
-            </div>
-            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">QA Ready</p>
-              <p className="text-lg font-semibold text-emerald-400">{qaGate.ready}</p>
-            </div>
+        </section>
+
+        {/* ── Decision Cockpit ── */}
+        <section className="mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <Zap className="w-4 h-4 text-[#3B82F6]" strokeWidth={1.5} />
+            <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Decision Cockpit</h2>
+            <span className="text-[10px] text-[#3F3F46] ml-auto">
+              SLA: {queuePolicy?.at_risk_hours ?? 8}h at risk · {queuePolicy?.breach_hours ?? 24}h breach · {queuePolicy?.critical_hours ?? 48}h critical
+            </span>
           </div>
-          <div className="grid grid-cols-2 gap-3 mt-3">
-            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Escalation Needed</p>
-              <p className="text-lg font-semibold text-rose-400">{queueInsights?.escalation_needed ?? queueScope.filter((q: any) => q.escalation_needed).length}</p>
-            </div>
-            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Top Bottleneck</p>
-              <p className="text-sm font-semibold text-[#EDEDED] truncate">
-                {queueInsights?.bottlenecks?.[0]?.bucket || "—"}
+
+          {/* SLA Status Row */}
+          <div className="grid grid-cols-5 gap-3 mb-3 stagger">
+            {[
+              { label: "Critical", value: cockpit.critical, color: "text-fuchsia-300", ring: "ring-fuchsia-500/20", bg: "bg-fuchsia-500/5", dot: "bg-fuchsia-400" },
+              { label: "SLA Breach", value: cockpit.overdue, color: "text-rose-400", ring: "ring-rose-500/20", bg: "bg-rose-500/5", dot: "bg-rose-400" },
+              { label: "At Risk", value: cockpit.atRisk, color: "text-amber-400", ring: "ring-amber-500/20", bg: "bg-amber-500/5", dot: "bg-amber-400" },
+              { label: "Healthy", value: cockpit.healthy, color: "text-emerald-400", ring: "ring-emerald-500/20", bg: "bg-emerald-500/5", dot: "bg-emerald-400" },
+              { label: "Median Time", value: `${cockpit.medianReviewHours.toFixed(1)}h`, color: "text-[#EDEDED]", ring: "ring-[#27272A]", bg: "bg-[#121212]", dot: "bg-blue-400" },
+            ].map(({ label, value, color, ring, bg, dot }) => (
+              <div key={label} className={`rounded-xl border border-[#1E1E1E] ${bg} p-4 ring-1 ${ring}`}>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <div className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+                  <span className="text-[9px] font-semibold tracking-[0.12em] uppercase text-[#52525B]">{label}</span>
+                </div>
+                <p className={`text-2xl font-bold tracking-tight ${color}`}>{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* QA Gate + Insights Row */}
+          <div className="grid grid-cols-3 gap-3 mb-3">
+            {[
+              { label: "QA Blocked", value: qaGate.blocked, color: "text-rose-400", icon: "x" },
+              { label: "QA Risky", value: qaGate.risky, color: "text-amber-400", icon: "!" },
+              { label: "QA Ready", value: qaGate.ready, color: "text-emerald-400", icon: "check" },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="rounded-xl border border-[#1E1E1E] bg-[#121212] p-4">
+                <span className="text-[9px] font-semibold tracking-[0.12em] uppercase text-[#3F3F46]">{label}</span>
+                <p className={`text-xl font-bold tracking-tight mt-1 ${color}`}>{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Escalation + Bottleneck Row */}
+          <div className="grid grid-cols-4 gap-3">
+            <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] p-4">
+              <span className="text-[9px] font-semibold tracking-[0.12em] uppercase text-[#3F3F46]">Escalation</span>
+              <p className="text-xl font-bold tracking-tight mt-1 text-rose-400">
+                {queueInsights?.escalation_needed ?? queueScope.filter((q: any) => q.escalation_needed).length}
               </p>
-              <p className="text-[10px] text-[#71717A] mt-1">
+            </div>
+            <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] p-4">
+              <span className="text-[9px] font-semibold tracking-[0.12em] uppercase text-[#3F3F46]">Unassigned</span>
+              <p className="text-xl font-bold tracking-tight mt-1 text-fuchsia-300">{queueInsights?.owner_sla?.unassigned ?? 0}</p>
+            </div>
+            <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] p-4">
+              <span className="text-[9px] font-semibold tracking-[0.12em] uppercase text-[#3F3F46]">Owner Overdue</span>
+              <p className="text-xl font-bold tracking-tight mt-1 text-rose-400">{queueInsights?.owner_sla?.overdue ?? 0}</p>
+            </div>
+            <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] p-4">
+              <span className="text-[9px] font-semibold tracking-[0.12em] uppercase text-[#3F3F46]">Top Bottleneck</span>
+              <p className="text-sm font-semibold text-[#EDEDED] truncate mt-1">
+                {queueInsights?.bottlenecks?.[0]?.bucket || "None"}
+              </p>
+              <p className="text-[10px] text-[#52525B] mt-0.5">
                 {queueInsights?.bottlenecks?.[0]
-                  ? `${queueInsights.bottlenecks[0].count} items · ${queueInsights.bottlenecks[0].critical || 0} critical · ${queueInsights.bottlenecks[0].breach} breach`
-                  : "No bottleneck data"}
+                  ? `${queueInsights.bottlenecks[0].count} items`
+                  : "Pipeline clear"}
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 mt-3">
-            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Owner Unassigned</p>
-              <p className="text-lg font-semibold text-fuchsia-300">{queueInsights?.owner_sla?.unassigned ?? 0}</p>
-            </div>
-            <div className="rounded-lg border border-[#27272A] bg-[#0A0A0A] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-[#52525B] mb-1">Owner Overdue</p>
-              <p className="text-lg font-semibold text-rose-400">{queueInsights?.owner_sla?.overdue ?? 0}</p>
-            </div>
-          </div>
-          <p className="text-[10px] text-[#52525B] mt-2">
-            SLA Policy: At Risk {queuePolicy?.at_risk_hours ?? 8}h · Breach {queuePolicy?.breach_hours ?? 24}h · Critical {queuePolicy?.critical_hours ?? 48}h
-          </p>
-          <p className="text-[10px] text-[#52525B] mt-1">
-            Cooldown: Critical {queueCooldown?.critical ?? 2}h · Breach {queueCooldown?.breach ?? 6}h · At Risk {queueCooldown?.at_risk ?? 12}h
-          </p>
         </section>
 
         {/* ── METRICS ROW ────────────────────────── */}
@@ -2436,6 +2408,45 @@ export default function DashboardPage() {
                       })}
                     </div>
                   )}
+
+                  {/* Upgrade CTA for non-enterprise plans */}
+                  {billing.plan && !billing.plan.startsWith('enterprise') && (
+                    <div className="mt-4 pt-4 border-t border-[#1E1E1E]">
+                      <button
+                        onClick={async () => {
+                          const result = await api.createCheckout(token, 'enterprise_starter', 'monthly');
+                          if (result?.checkout_url) window.open(result.checkout_url, '_blank');
+                        }}
+                        className="w-full py-2 px-3 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white text-xs font-semibold hover:from-blue-500 hover:to-purple-500 transition-all"
+                      >
+                        Upgrade to Enterprise — $499/mo
+                      </button>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-[10px] text-[#52525B]">SSO</span>
+                        <span className="text-[10px] text-[#52525B]">•</span>
+                        <span className="text-[10px] text-[#52525B]">Audit Log</span>
+                        <span className="text-[10px] text-[#52525B]">•</span>
+                        <span className="text-[10px] text-[#52525B]">Departments</span>
+                        <span className="text-[10px] text-[#52525B]">•</span>
+                        <span className="text-[10px] text-[#52525B]">500GB</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Enterprise badge */}
+                  {billing.plan?.startsWith('enterprise') && (
+                    <div className="mt-4 pt-4 border-t border-[#1E1E1E]">
+                      <div className="flex items-center gap-2">
+                        <Shield className="w-3.5 h-3.5 text-purple-400" />
+                        <span className="text-[10px] text-purple-400 font-medium">Enterprise features active</span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-2">
+                        <span className="text-[10px] text-emerald-400">✓ SSO</span>
+                        <span className="text-[10px] text-emerald-400">✓ Audit</span>
+                        <span className="text-[10px] text-emerald-400">✓ Departments</span>
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="space-y-3">
@@ -2595,6 +2606,89 @@ export default function DashboardPage() {
           </div>
         </section>
           </>
+        )}
+
+        {/* ── ENTERPRISE SECTION ─────────────────────────── */}
+        {isLead && billing?.plan?.startsWith('enterprise') && (
+          <section className="mb-10 stagger">
+            <div className="flex items-center gap-2 mb-4">
+              <Shield className="w-4 h-4 text-purple-400" strokeWidth={1.5} />
+              <h2 className="text-sm font-semibold tracking-tight text-[#EDEDED]">Enterprise</h2>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+
+              {/* SSO Config Card */}
+              <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <Lock className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-xs font-semibold text-[#EDEDED]">SSO Configuration</span>
+                </div>
+                <p className="text-[10px] text-[#52525B] mb-3">Configure Single Sign-On for your studio members.</p>
+                <div className="space-y-2">
+                  {['Google Workspace', 'Microsoft Entra', 'SAML 2.0'].map((p) => (
+                    <div key={p} className="flex items-center justify-between px-2 py-1.5 rounded-md border border-[#1E1E1E] bg-[#0A0A0A]">
+                      <span className="text-[10px] text-[#A1A1AA]">{p}</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-500 ring-1 ring-zinc-500/20">Configure</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Audit Log Card */}
+              <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-xs font-semibold text-[#EDEDED]">Audit Log</span>
+                </div>
+                <p className="text-[10px] text-[#52525B] mb-3">Export activity logs for compliance and reporting.</p>
+                <div className="space-y-2">
+                  <button
+                    onClick={async () => {
+                      const blob = await api.exportAuditLog(token, { format: 'csv' });
+                      if (blob && blob instanceof Blob) {
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a'); a.href = url; a.download = `audit_log_${Date.now()}.csv`; a.click();
+                        URL.revokeObjectURL(url);
+                      }
+                    }}
+                    className="w-full py-2 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#A1A1AA] hover:text-white hover:border-[#3B82F6] transition-colors text-left flex items-center gap-2"
+                  >
+                    <FileText className="w-3 h-3" /> Export as CSV
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const data = await api.exportAuditLog(token, { format: 'json', limit: 1000 });
+                      if (data?.entries) {
+                        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a'); a.href = url; a.download = `audit_log_${Date.now()}.json`; a.click();
+                        URL.revokeObjectURL(url);
+                      }
+                    }}
+                    className="w-full py-2 px-3 rounded-lg bg-[#0A0A0A] border border-[#27272A] text-xs text-[#A1A1AA] hover:text-white hover:border-[#3B82F6] transition-colors text-left flex items-center gap-2"
+                  >
+                    <FileText className="w-3 h-3" /> Export as JSON
+                  </button>
+                </div>
+              </div>
+
+              {/* Migration Wizard Card */}
+              <div className="rounded-xl border border-[#1E1E1E] bg-[#121212] p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <Upload className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-xs font-semibold text-[#EDEDED]">Migration Import</span>
+                </div>
+                <p className="text-[10px] text-[#52525B] mb-3">Import assets from Google Drive or Dropbox.</p>
+                <a
+                  href="/dashboard/migration"
+                  className="w-full py-2.5 px-3 rounded-lg bg-gradient-to-r from-blue-600/10 to-purple-600/10 border border-blue-500/20 text-xs text-blue-400 font-medium hover:from-blue-600/20 hover:to-purple-600/20 hover:border-blue-500/30 transition-all flex items-center justify-center gap-2"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Open Migration Wizard
+                </a>
+              </div>
+            </div>
+          </section>
         )}
 
       </main>
@@ -2851,11 +2945,20 @@ export default function DashboardPage() {
                 <div className="w-10 h-10 rounded-md bg-[#18181B] border border-[#27272A] flex items-center justify-center">
                   {fileIcon(inspectAsset.file_type)}
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-[#EDEDED]">{inspectAsset.filename}</p>
+                <div className="min-w-0 flex-1">
+                  <a href={`/dashboard/assets?id=${inspectAsset.id}`} className="text-sm font-medium text-[#EDEDED] hover:text-blue-400 transition-colors truncate block">
+                    {inspectAsset.filename}
+                  </a>
                   <p className="text-xs text-[#52525B]">{formatSize(inspectAsset.file_size_kb)} · {inspectAsset.uploader_name || 'Unknown'}</p>
                 </div>
-                <div className="ml-auto"><StatusBadge status={inspectAsset.status} /></div>
+                <a
+                  href={`/dashboard/assets?id=${inspectAsset.id}`}
+                  className="p-1.5 rounded-md hover:bg-white/[0.06] text-[#52525B] hover:text-[#EDEDED] transition-colors"
+                  title="Open full page"
+                >
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </a>
+                <StatusBadge status={inspectAsset.status} />
               </div>
 
               {/* FAZ 11: 3D Preview */}

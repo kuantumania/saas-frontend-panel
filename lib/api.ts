@@ -510,3 +510,226 @@ export async function submitAssetForReview(token: string, s3Key: string) {
   if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
   return data;
 }
+
+// ── Enterprise: Plans & Billing ──
+
+export async function fetchPlans() {
+  const res = await fetch(`${API}/api/billing/plans`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.plans || [];
+}
+
+export async function createCheckout(token: string, plan: string, billingCycle: 'monthly' | 'annual' = 'monthly') {
+  const res = await fetch(`${API}/api/billing/checkout`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify({ plan, billing_cycle: billingCycle }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data;
+}
+
+// ── Enterprise: Audit Log Export ──
+
+export async function exportAuditLog(token: string, params: {
+  format?: 'json' | 'csv';
+  from?: string;
+  to?: string;
+  action?: string;
+  user_id?: string;
+  limit?: number;
+} = {}) {
+  const query = new URLSearchParams();
+  if (params.format) query.set('format', params.format);
+  if (params.from) query.set('from', params.from);
+  if (params.to) query.set('to', params.to);
+  if (params.action) query.set('action', params.action);
+  if (params.user_id) query.set('user_id', params.user_id);
+  if (params.limit) query.set('limit', params.limit.toString());
+
+  const res = await fetch(`${API}/api/audit/export?${query.toString()}`, {
+    headers: headers(token),
+  });
+
+  if (params.format === 'csv') {
+    if (!res.ok) return null;
+    return await res.blob();
+  }
+
+  if (!res.ok) return null;
+  return res.json();
+}
+
+// ── Enterprise: SSO ──
+
+export async function fetchSSOConfig(token: string) {
+  const res = await fetch(`${API}/api/auth/sso/config`, { headers: headers(token) });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function updateSSOConfig(token: string, config: {
+  provider: 'saml' | 'google' | 'microsoft';
+  idp_url?: string;
+  certificate_fingerprint?: string;
+  enabled?: boolean;
+}) {
+  const res = await fetch(`${API}/api/auth/sso/config`, {
+    method: "PUT",
+    headers: headers(token),
+    body: JSON.stringify(config),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data;
+}
+
+export async function initSSO(studioSlug: string) {
+  const res = await fetch(`${API}/api/auth/sso/init`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ studio_slug: studioSlug }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data;
+}
+
+// ── Enterprise: Migration Import ──
+
+export async function listDriveFiles(token: string, accessToken: string, folderId: string = 'root') {
+  const res = await fetch(`${API}/api/import/drive/list`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify({ access_token: accessToken, folder_id: folderId }),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.files || [];
+}
+
+export async function listDropboxFiles(token: string, accessToken: string, path: string = '') {
+  const res = await fetch(`${API}/api/import/dropbox/list`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify({ access_token: accessToken, path }),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.files || [];
+}
+
+export async function importFromCloud(token: string, params: {
+  source: 'google_drive' | 'dropbox';
+  access_token: string;
+  file_ids: string[];
+  folder_id?: string;
+}) {
+  const res = await fetch(`${API}/api/import/cloud`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify(params),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+  return data;
+}
+
+// ── Department RBAC v2 ──────────────────────────
+
+export async function fetchDepartments(token: string) {
+  const res = await fetch(`${API}/api/departments`, { headers: headers(token) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return [];
+  return data?.departments || [];
+}
+
+export async function createDepartment(token: string, name: string, parentId?: string) {
+  const res = await fetch(`${API}/api/departments`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify({ name, parent_id: parentId || null }),
+  });
+  return res.json();
+}
+
+export async function updateDepartment(token: string, deptId: string, name?: string, parentId?: string) {
+  const res = await fetch(`${API}/api/departments/${deptId}`, {
+    method: "PUT",
+    headers: headers(token),
+    body: JSON.stringify({ name, parent_id: parentId }),
+  });
+  return res.json();
+}
+
+export async function deleteDepartment(token: string, deptId: string) {
+  const res = await fetch(`${API}/api/departments/${deptId}`, {
+    method: "DELETE",
+    headers: headers(token),
+  });
+  return res.json();
+}
+
+export async function fetchDepartmentMembers(token: string, deptId: string) {
+  const res = await fetch(`${API}/api/departments/${deptId}/members`, { headers: headers(token) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return [];
+  return data?.members || [];
+}
+
+export async function addDepartmentMember(token: string, deptId: string, userId: string, role: string = "member") {
+  const res = await fetch(`${API}/api/departments/${deptId}/members`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify({ user_id: userId, role }),
+  });
+  return res.json();
+}
+
+export async function removeDepartmentMember(token: string, deptId: string, userId: string) {
+  const res = await fetch(`${API}/api/departments/${deptId}/members/${userId}`, {
+    method: "DELETE",
+    headers: headers(token),
+  });
+  return res.json();
+}
+
+export async function fetchMyDepartments(token: string) {
+  const res = await fetch(`${API}/api/users/me/departments`, { headers: headers(token) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return [];
+  return data?.departments || [];
+}
+
+// ── Webhook + Slack ──────────────────────────
+
+export async function fetchWebhookConfig(token: string) {
+  const res = await fetch(`${API}/api/webhooks/config`, { headers: headers(token) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return null;
+  return data;
+}
+
+export async function updateWebhookConfig(token: string, config: {
+  webhook_url?: string;
+  webhook_events?: string[];
+  slack_webhook_url?: string;
+}) {
+  const res = await fetch(`${API}/api/webhooks/config`, {
+    method: "PUT",
+    headers: headers(token),
+    body: JSON.stringify(config),
+  });
+  return res.json();
+}
+
+export async function testWebhook(token: string, target: "webhook" | "slack") {
+  const res = await fetch(`${API}/api/webhooks/test`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify({ target }),
+  });
+  return res.json();
+}
