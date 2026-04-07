@@ -147,7 +147,11 @@ export default function LoginPage() {
         localStorage.setItem("session_user", JSON.stringify({ role: "lead", name: data?.studio?.name || studioName.trim() }));
         window.location.href = "/dashboard";
       } else {
-        setError(data.error || "Registration failed. Please try again.");
+        const errMsg = data.error || "Registration failed. Please try again.";
+        const errCode = data.code ? ` [${data.code}]` : "";
+        const errDetails = data.details ? `\n${data.details.slice(0, 200)}` : "";
+        setError(`${errMsg}${errCode}${errDetails}`);
+        console.error("Register error:", data);
       }
     } catch {
       setError("Server unavailable");
