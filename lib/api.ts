@@ -733,3 +733,21 @@ export async function testWebhook(token: string, target: "webhook" | "slack") {
   });
   return res.json();
 }
+
+// ── Onboarding ──────────────────────────
+
+export async function fetchOnboardingStatus(token: string) {
+  const res = await fetch(`${API}/api/onboarding/status`, { headers: headers(token) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { status: 'pending' };
+  return data;
+}
+
+export async function completeOnboarding(token: string, status: string = 'completed') {
+  const res = await fetch(`${API}/api/onboarding/complete`, {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify({ status }),
+  });
+  return res.json().catch(() => null);
+}

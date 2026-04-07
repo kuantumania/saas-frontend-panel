@@ -62,6 +62,8 @@ import {
 } from "@/components/dashboard/DashboardActionModals";
 import EnterpriseSection from "@/components/dashboard/EnterpriseSection";
 import DashboardMemberContent from "@/components/dashboard/DashboardMemberContent";
+import WelcomeWizard from "@/components/onboarding/WelcomeWizard";
+import EmptyStateCards from "@/components/onboarding/EmptyStateCards";
 import DashboardLeadBottomRow from "@/components/dashboard/DashboardLeadBottomRow";
 import DashboardLeadLibrarySection from "@/components/dashboard/DashboardLeadLibrarySection";
 import DashboardLeadOverviewSection from "@/components/dashboard/DashboardLeadOverviewSection";
@@ -173,6 +175,7 @@ export default function DashboardPage() {
   const [libSearch, setLibSearch] = useState("");
   const [libPage, setLibPage] = useState(1);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [showToken, setShowToken] = useState(false);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
@@ -302,6 +305,7 @@ export default function DashboardPage() {
           fld,
           unityActive,
           syncHealth,
+          onboardingReq,
         ] = await Promise.all([
           api.fetchStats(token),
           api.fetchPendingReview(token),
@@ -317,6 +321,7 @@ export default function DashboardPage() {
           api.fetchFolders(token),
           api.fetchUnityActiveAssets(token),
           api.fetchUnitySyncHealth(token),
+          api.fetchOnboardingStatus(token)
         ]);
         setStats(s);
         setPendingAssets(p);
@@ -361,6 +366,11 @@ export default function DashboardPage() {
         } else {
           setUnitySyncHealth(syncHealth || null);
           setUnitySyncHealthError(null);
+        }
+        
+        const obs = onboardingReq?.status || "pending";
+        if (obs === "pending" || obs === "started") {
+          setShowWelcome(true);
         }
       } else {
         const [l, a, n, unityActive, syncHealth] = await Promise.all([
@@ -1323,6 +1333,22 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#EDEDED] font-[family-name:var(--font-geist-sans)]">
+      <AnimatePresence>
+        {showWelcome && (
+          <WelcomeWizard
+            studioName={studio.name || "Studio"}
+            onComplete={async () => {
+              if (token) await api.completeOnboarding(token, "completed");
+              setShowWelcome(false);
+            }}
+            onSkip={async () => {
+              if (token) await api.completeOnboarding(token, "skipped");
+              setShowWelcome(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* ── SHARED NAV ─────────────────── */}
       <DashboardNav
         studioName={studio.name || "Studio"}
@@ -1338,7 +1364,9 @@ export default function DashboardPage() {
 
       {/* ── MAIN CONTENT ─────────────────────────── */}
       <main className="max-w-6xl mx-auto px-6 py-8">
-        {!isLead ? (
+        {!loading && libraryAssets.length === 0 && pendingAssets.length === 0 && reviewQueue.length === 0 ? (
+          <EmptyStateCards />
+        ) : !isLead ? (
           <DashboardMemberContent
             memberName={memberName}
             sessionUser={sessionUser}
