@@ -148,10 +148,7 @@ export default function LoginPage() {
         window.location.href = "/dashboard";
       } else {
         const errMsg = data.error || "Registration failed. Please try again.";
-        const errCode = data.code ? ` [${data.code}]` : "";
-        const errDetails = data.details ? `\n${data.details.slice(0, 200)}` : "";
-        setError(`${errMsg}${errCode}${errDetails}`);
-        console.error("Register error:", data);
+        setError(errMsg);
       }
     } catch {
       setError("Server unavailable");
